@@ -11,6 +11,8 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
   const length = opts.length ?? 700;
   return function create(startX: number): PatternData {
     const container = new Container();
+    // allow per-child zIndex ordering so decorations can be forced above tiles
+    try { container.sortableChildren = true; } catch (e) {}
 
     // Load textures and measure sizes
     const midTex = Texture.from('/Assets/_arts/bg_1_groundmid.png');
@@ -48,6 +50,40 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
       s.anchor.set(0, 0);
       container.addChild(s);
     }
+
+    // decorative store sprite placed centered over the mid section
+    try {
+      const storeTex = Texture.from('/Assets/_arts/bg_1_store3.png');
+      if (storeTex) {
+        const ds = new Sprite(storeTex);
+        // anchor bottom-center so the sprite sits on top of the ground surface
+        ds.anchor.set(0.1, 1);
+        ds.x = midStart + 300;
+        // set bottom to container local y=0 so it sits on the road top
+        ds.y = -300;
+        // neutral scale; adjust if necessary
+        ds.scale.set(0.7, 1);
+        // ensure decoration renders above mid tiles
+        ds.zIndex = 1000;
+        container.addChild(ds);
+      }
+    } catch (e) {}
+    try {
+      const storeTex = Texture.from('/Assets/_arts/bg_1_light.png');
+      if (storeTex) {
+        const ds = new Sprite(storeTex);
+        // anchor bottom-center so the sprite sits on top of the ground surface
+        ds.anchor.set(0.1, 1);
+        ds.x = midStart;
+        // set bottom to container local y=0 so it sits on the road top
+        ds.y = -300;
+        // neutral scale; adjust if necessary
+        ds.scale.set(0.7, 1);
+        // ensure decoration renders above mid tiles
+        ds.zIndex = 1000;
+        container.addChild(ds);
+      }
+    } catch (e) {}
 
     // right end
     if (opts.rightEnd && rightTex) {

@@ -231,10 +231,10 @@ async function init() {
   
 
   // increase initial camera/player speed slightly so gameplay feels faster
-  const gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000 });
+  const gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160 });
   try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
 
-  // spawn two ground patterns with a pit between them
+  // spawn a sequence of ground patterns (~20) so the scene is filled
   try {
     // preload ground textures so Sprite/Texture are ready
     try {
@@ -245,6 +245,13 @@ async function init() {
     } catch (e) {}
     try {
       await loadTexture('/Assets/_arts/bg_1_groundright.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/bg_1_store3.png');
+    } catch (e) {}
+    try {
+      await loadTexture('/Assets/_arts/bg_1_light.png');
     } catch (e) {}
 
     const handler = (gameplay as any)._handler;
@@ -267,54 +274,62 @@ async function init() {
         } catch (e) {}
       }
     });
-    // ensure each ground-only pattern includes both end caps so edges render correctly
-    const p1Factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length: 700 });
-    const p2Factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length: 700 });
 
-    const startX1 = 0;
-    const p1 = handler.addPattern(p1Factory, startX1);
-
-    // create a pit between p1 and p2
-    const pitWidth = 300;
-    // prefer the visual width (container bounds) if available so the pit
-    // sits between the visible edges of the pattern rather than the
-    // declared logical length.
-    let visualLength = p1 && p1.container ? (() => {
-      try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; }
-    })() : (p1 ? p1.length : 700);
-    const pitX = startX1 + visualLength;
-    // Register pit in gameplay so isOverPit works
-    try { (gameplay as any).getPits().push({ x: pitX, width: pitWidth }); } catch (e) { }
-
-    const startX2 = pitX + pitWidth;
-    handler.addPattern(p2Factory, startX2);
-    // place player on the first pattern's surface so they spawn on the pattern
+    // Create and place multiple ground-only patterns (~20) sequentially
     try {
-      if (p1 && p1.container && player) {
-        // if player's worldX is already over p1, keep it; otherwise move player to near the left of p1
-        const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
-        const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
-        player.worldX = targetWorldX;
-        // position the player using the handler-provided surface Y so they
-        // stand where the pattern intends (e.g. centered on the road)
-        try {
-          const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
-          player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
-        } catch (e) {
-          player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
+      const patterns: any[] = [];
+      const NUM_PATTERNS = 20;
+      const PIT_WIDTH = 300; // pit between every two patterns
+      let cursorX = 0;
+      for (let i = 0; i < NUM_PATTERNS; i++) {
+        const length = 700;
+        // always include left and right end caps for each pattern
+        const factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
+        const p = handler.addPattern(factory, cursorX);
+        patterns.push(p);
+
+        // determine visual length (prefer container bounds when available)
+        let visualLength = p && p.container ? (() => {
+          try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; }
+        })() : (p ? p.length : length);
+
+        // add a pit between this pattern and the next (except after last)
+        if (i < NUM_PATTERNS - 1) {
+          try { (gameplay as any).getPits().push({ x: cursorX + visualLength, width: PIT_WIDTH }); } catch (e) {}
         }
-        player.vy = 0;
-        player.onGround = true;
-        try { player.sprite.y = player.y; } catch (e) {}
-        if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps;
+
+        cursorX += visualLength;
+        if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
       }
-    } catch (e) {}
-    try { 
-      // make sure player is on top of world children so it's visible
-      try { world.removeChild(player.sprite); } catch (e) {}
-      world.addChild(player.sprite);
-      console.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
-    } catch (e) {}
+
+      // place player on the first pattern's surface so they spawn on the pattern
+      try {
+        const p1 = patterns.length > 0 ? patterns[0] : null;
+        if (p1 && p1.container && player) {
+          const startX1 = 0;
+          const visualLength = p1 && p1.container ? (() => { try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; } })() : (p1 ? p1.length : 700);
+          const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
+          const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
+          player.worldX = targetWorldX;
+          try {
+            const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
+            player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
+          } catch (e) {
+            player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
+          }
+          player.vy = 0;
+          player.onGround = true;
+          try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+          try { player.sprite.y = player.y; } catch (e) {}
+        }
+      } catch (e) {}
+      try { 
+        // make sure player is on top of world children so it's visible
+        try { world.removeChild(player.sprite); } catch (e) {}
+        world.addChild(player.sprite);
+        console.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
+      } catch (e) {}
+    } catch (e) { console.warn('Failed to spawn repeated patterns', e); }
   } catch (e) { console.warn('Pattern spawn failed', e); }
 
   // prevent repeating keydown from causing multiple jump calls
@@ -533,7 +548,6 @@ async function init() {
   });
 
   // Game over handling (with grace/config)
-  // grace/config for game over
   const GAME_OVER_GRACE_MS = 400;
   let gameOver = false;
   let gameOverQueuedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -541,58 +555,19 @@ async function init() {
 
   function doGameOver(finalReason?: string) {
     if (gameOver) return;
+    // Protect against false positives: if the player is currently on a
+    // registered pattern and appears grounded, suppress the Game Over.
+    try {
+      const handler = (gameplay as any)._handler;
+      const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : false;
+      if (onPattern && player && player.onGround) {
+        console.debug && console.debug('Suppressing GameOver: player still on pattern', { finalReason, worldX: player.worldX, onPattern });
+        return;
+      }
+    } catch (e) {}
+
     gameOver = true;
-    console.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
-
-    // show a semi-opaque gray overlay and a Play Again button
-    const overlay = new Graphics();
-    overlay.rect(0, 0, WIDTH, HEIGHT).fill({ color: 0x000000, alpha: 0.6 });
-    overlay.x = 0; overlay.y = 0;
-    overlay.label = 'gameoverOverlay';
-    root.addChild(overlay);
-
-    const goStyle = new TextStyle({ fill: '#ffffff', fontSize: 72, fontFamily: 'Helvetica, Arial' });
-    const go = new Text({ text: 'GAME OVER', style: goStyle });
-    go.anchor = { x: 0.5, y: 0.5 } as any;
-    go.x = WIDTH / 2;
-    go.y = HEIGHT / 2 - 80;
-    go.label = 'gameoverText';
-    root.addChild(go);
-
-    const btnStyle = new TextStyle({ fill: '#000000', fontSize: 36, fontFamily: 'Helvetica, Arial' });
-    const btnBg = new Graphics();
-    const btnW = 260, btnH = 60;
-    const btnX = WIDTH / 2 - btnW / 2;
-    const btnY = HEIGHT / 2 + 10;
-    btnBg.rect(btnX, btnY, btnW, btnH).fill({ color: 0xffffff });
-    btnBg.label = 'playAgainBg';
-    root.addChild(btnBg);
-
-    const playText = new Text({ text: 'Play Again', style: btnStyle });
-    playText.x = WIDTH / 2 - (playText.width / 2);
-    playText.y = btnY + (btnH - playText.height) / 2;
-    playText.interactive = true;
-    (playText as any).buttonMode = true;
-    playText.label = 'playAgainText';
-    root.addChild(playText);
-
-    const cleanupAndRestart = () => {
-      try { root.removeChild(overlay); } catch (e) {}
-      try { root.removeChild(go); } catch (e) {}
-      try { root.removeChild(btnBg); } catch (e) {}
-      try { root.removeChild(playText); } catch (e) {}
-      // reset gameplay and player state
-      try { (gameplay as any).reset(); } catch (e) {}
-      player.worldX = PLAYER_X;
-      player.vy = 0;
-      player.y = groundY - playerRadius;
-      if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps;
-      gameOver = false;
-      try { app.ticker.start(); } catch (e) {}
-    };
-
-    playText.on('pointerdown', cleanupAndRestart);
-    btnBg.interactive = true; (btnBg as any).buttonMode = true; btnBg.on('pointerdown', cleanupAndRestart);
+    console.log('GameOver triggered (overlay suppressed):', finalReason ?? gameOverQueuedReason ?? 'unknown');
   }
 
   function queueGameOver(reason: string) {
@@ -603,7 +578,6 @@ async function init() {
     gameOverQueuedTimer = setTimeout(() => {
       gameOverQueuedTimer = null;
       try {
-        // If the queued reason is 'left-pattern', only finalize if player still off-pattern.
         if (reason === 'left-pattern') {
           const handler = (gameplay as any)._handler;
           const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : true;
@@ -621,14 +595,30 @@ async function init() {
   app.ticker.add(() => {
     if (gameOver) return;
     try {
-      // if player falls behind the camera (e.g. drops into pit or is blocked and slips back), game over
+      // Immediate pit fall detection
+      try {
+        const overPit = (gameplay as any).isOverPit ? (gameplay as any).isOverPit(player.worldX) : false;
+        if (overPit && (player as any).vy > 60) {
+          const surfaceY = (player as any).getGroundY ? (player as any).getGroundY(player.worldX) : groundY;
+          const playerBottom = player.y + playerRadius;
+          if (playerBottom > surfaceY + 12) {
+            console.debug && console.debug('Player fell into pit — immediate Game Over', { worldX: player.worldX, playerBottom, surfaceY });
+            doGameOver('fell-into-pit');
+            return;
+          }
+        }
+      } catch (e) {}
+
       const screenX = player.sprite.x + world.x;
       const behindThreshold = -playerRadius - 10;
+      const screenY = (player.sprite.y || 0) + (world.y || 0);
+
       if (screenX < behindThreshold) {
-        // only behind-camera should queue a game over now
         queueGameOver('behind-camera');
+      } else if (screenY > HEIGHT + 100) {
+        console.debug && console.debug('Player fell off bottom of screen — triggering Game Over', { screenY });
+        doGameOver('fell-off-screen');
       } else {
-        // if we had a queued 'behind-camera' game over but player returned on-screen, cancel it
         if (gameOverQueuedTimer && gameOverQueuedReason === 'behind-camera') {
           try { console.log('GameOver canceled (player returned on-screen):', gameOverQueuedReason); } catch (e) {}
           clearTimeout(gameOverQueuedTimer as any);

@@ -44,10 +44,11 @@ export class MapHandler {
   private obstacles: { x: number; width: number; height: number; sprite: Graphics }[] = [];
   private obstaclesContainer: Container;
   private hitboxDebug = false;
+  private groundThickness = 8;
   // allow toggling random obstacle spawning (useful for debugging/testing)
   public allowRandomObstacles = true;
 
-  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternHitboxDebug?: boolean; }) {
+  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; }) {
     this.world = options.world;
     this.bg = options.bg;
     this.label = options.label;
@@ -61,6 +62,7 @@ export class MapHandler {
     this.obstaclesContainer = new Container();
     this.world.addChild(this.obstaclesContainer);
     this.hitboxDebug = !!(options as any).patternHitboxDebug;
+    this.groundThickness = (options as any).patternGroundThickness ?? this.groundThickness;
     // track spawned patterns (start, length, topY) for ground membership checks
     this.patterns = [] as { start: number; length: number; top?: number }[];
   }
@@ -96,13 +98,16 @@ export class MapHandler {
       // so that local y=0 is the surface/top of the ground in many patterns)
       const worldGroundTop = p.container.y;
 
-      // record pattern span including its top Y and any playerYOffset suggested
-      this.patterns.push({ start: visualStart, length: visualLength, top: worldGroundTop, playerYOffset: p.playerYOffset ?? 0 });
+      // record pattern span including its top Y (adjusted to the collider's
+      // top so surface queries reflect the collider) and any playerYOffset
+      // suggested by the pattern.
+      const topForSurface = worldGroundTop - (this.groundThickness || 0);
+      this.patterns.push({ start: visualStart, length: visualLength, top: topForSurface, playerYOffset: p.playerYOffset ?? 0 });
 
       // create a thin ground collider across the visual width of the pattern
       // so characters and physics can interact with the pattern surface.
       try {
-        const groundThickness = 8 ;
+        const groundThickness = this.groundThickness || 8;
         const gcol = new Graphics();
         gcol.clear();
         gcol.beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
@@ -284,9 +289,9 @@ export class MapHandler {
 // Keep the old createGameplay function but back it with MapHandler so callers
 // in `main.ts` remain compatible. This gives us a clean migration path to
 // building Patterns in the next step.
-export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternHitboxDebug = false }:
-  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternHitboxDebug?: boolean; }) {
-  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternHitboxDebug });
+export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternHitboxDebug = false, patternGroundThickness = 8 }:
+  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; }) {
+  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternHitboxDebug, patternGroundThickness });
 
   return {
     update: (deltaSec: number) => handler.update(deltaSec, speedAccel),
