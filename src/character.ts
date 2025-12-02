@@ -6,6 +6,8 @@ export interface Player {
   y: number;
   vy: number;
   onGround: boolean;
+  // optional callback to query current ground surface Y at a given worldX
+  getGroundY?: (worldX: number) => number;
   jump(): void;
   // start a jump and begin holding (for longer jump when held)
   startJumpHold?(): boolean;
@@ -46,7 +48,9 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     s.scale.set(1, 1);
     sprite = s;
   } else {
-    sprite = new Graphics().circle(0, 0, playerRadius).fill(0xffdd00) as Graphics;
+    const g = new Graphics();
+    g.circle(0, 0, playerRadius).fill({ color: 0xffdd00 });
+    sprite = g as Graphics;
   }
   // position sprite (world coordinates)
   sprite.x = PLAYER_X;
@@ -110,9 +114,14 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
       } else {
         this.vy += gravity * deltaSec;
       }
+      const prevY = this.y;
       this.y += this.vy * deltaSec;
-      const groundTop = groundY - playerRadius;
-      if (this.y >= groundTop) {
+      const surfaceY = (this as any).getGroundY ? (this as any).getGroundY(this.worldX) : groundY;
+      const groundTop = surfaceY - playerRadius;
+      // Only snap to surface if the player crossed the surface from above
+      // (i.e., was above it and now is at/below it). If the player is already
+      // below the surface (fell into a pit), do not teleport them back up.
+      if (prevY < groundTop && this.y >= groundTop && this.vy >= 0) {
         this.y = groundTop;
         this.vy = 0;
         this.onGround = true;

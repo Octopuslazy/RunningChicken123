@@ -2,8 +2,8 @@ import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Text
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { createGameplay } from './gameplay';
-import { createRoad } from './ground';
 import { loadTexture, loadSpriteStrip, splitSpriteStrip, splitSpriteStripFixed, loadIndexedFrames, loadSpriteStripAsSeparateTextures } from './assetLoader';
+import { makeGroundPattern } from './patterns/groundOnly';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -41,7 +41,7 @@ async function init() {
   const world = new Container();
   root.addChild(world);
 
-  const bg = new Graphics().rect(0, 0, WIDTH, HEIGHT).fill(0x66ccff);
+  const bg = new Graphics().rect(0, 0, WIDTH, HEIGHT).fill({ color: 0x66ccff });
   world.addChild(bg);
 
   // Parallax city background (tiles `bg_3_city.png`) placed behind everything
@@ -133,19 +133,9 @@ async function init() {
     }
   } catch (e) { cloudSmallLayer = null; }
 
-  const groundY = HEIGHT - 120;
-  // keep a ground Graphics for reference/collision but visuals come from tiled road
-  const ground = new Graphics();
-  world.addChild(ground);
-
-  // create tiled road using art (attach to `root` so it scrolls in screen-space)
-  const road = await createRoad(root, groundY, WIDTH, HEIGHT, { tilePath: '/Assets/_arts/bg_1_groundmid.png', tileWidth: 128 });
-  // mask that will be updated to hide tiles where pits exist (attach to root)
-  const roadMask = new Graphics();
-  root.addChild(roadMask);
-  if (road && (road as any).container) {
-    (road as any).container.mask = roadMask;
-  }
+  const groundY = HEIGHT + 1200;
+  // NOTE: system ground removed — patterns provide ground art and define where
+  // the player can stand. We no longer create a global ground Graphics.
 
   // attempt to load a background image (optional)
   // Assets are located in `Assets/_arts/` in this project
@@ -176,60 +166,156 @@ async function init() {
 
   const PLAYER_X = 150;
   const playerRadius = 28;
+  const PLAYER_SPAWN_LIFT = 80; // pixels above the ground/pattern to spawn
   let player: any = null;
   // Use `char.png` as the static character texture (no animation)
   const charTex = await loadTexture('/Assets/_arts/char.png');
   if (charTex) {
     console.log('Using char.png for player texture');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
+    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
   } else {
     console.log('char.png not found; falling back to graphics');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
+    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
   }
 
   player.worldX = PLAYER_X;
   world.addChild(player.sprite);
+  try {
+    // ensure visible and log initial state for debugging
+    (player.sprite as any).visible = true;
+    (player.sprite as any).alpha = 1;
+    console.log('Player spawned:', { worldX: player.worldX, x: player.sprite.x, y: player.sprite.y });
+  } catch (e) {}
 
   // Load Spine visual for the player (optional). If successful, replace the
   // player's sprite with the Spine view so visuals come from Spine while
   // physics/controls remain on the `player` object.
   let spinePlayerInstance: any = null;
   let defaultAnim: string | null = null;
-  (async () => {
+  // We'll provide a helper to (re)load Spine animations and attach them
+  // to the player. This allows us to remove existing animations and
+  // re-import from disk on demand.
+  async function reloadSpineAnimations() {
     try {
+      // If there's an existing Spine view attached, remove it first
+      try {
+        if (spinePlayerInstance && spinePlayerInstance.view) {
+          try { world.removeChild(spinePlayerInstance.view); } catch (e) {}
+        }
+      } catch (e) {}
+
       const sp = new SpinePlayer('kfc_chicken');
       await sp.load('/Assets/Arts/anim/');
-      // figure out a sensible default loop (prefer 'run' then 'idle')
       const avail = sp.getAnimations();
-      defaultAnim = avail.includes('run') ? 'run' : (avail.includes('idle') ? 'idle' : (avail.length ? avail[0] : null));
-      if (defaultAnim) sp.setDefaultLoop(defaultAnim);
-      // position/scale to match player
       sp.setScale(1.5);
       sp.setPosition(player.worldX, player.y);
-      // replace visual
+
+      // attach the new view
       try { world.removeChild(player.sprite); } catch (e) {}
       player.sprite = sp.view;
       (player.sprite as any).interactive = true;
       (player.sprite as any).buttonMode = true;
-      // when sprite itself is tapped/clicked, try to jump and, if a jump
-      // actually occurred, interrupt the base loop and play the jump anim on
-      // track 0 so the run animation stops during the jump.
       player.sprite.on && player.sprite.on('pointerdown', () => {
-        try {
-          (player as any).jump();
-        } catch (e) {}
+        try { (player as any).jump(); } catch (e) {}
       });
       world.addChild(player.sprite);
       spinePlayerInstance = sp;
-      console.log('SpinePlayer loaded and attached to player — animations:', avail);
+      console.log('SpinePlayer loaded — animations:', avail);
     } catch (e) {
-      console.warn('SpinePlayer load failed:', e);
+      console.warn('SpinePlayer reload failed:', e);
     }
-  })();
+  }
+
+  // initial load
+  reloadSpineAnimations();
   
 
   // increase initial camera/player speed slightly so gameplay feels faster
-  const gameplay = createGameplay({ world, bg, ground, label, WIDTH, HEIGHT, initialSpeed: 200, speedAccel: 8 });
+  const gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000 });
+  try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
+
+  // spawn two ground patterns with a pit between them
+  try {
+    // preload ground textures so Sprite/Texture are ready
+    try {
+      await loadTexture('/Assets/_arts/bg_1_groundmid.png');
+    } catch (e) {}
+    try {
+      await loadTexture('/Assets/_arts/bg_1_groundleft.png');
+    } catch (e) {}
+    try {
+      await loadTexture('/Assets/_arts/bg_1_groundright.png');
+    } catch (e) {}
+
+    const handler = (gameplay as any)._handler;
+    // enable hitbox debug by default so colliders are visible for verification
+    try { handler.toggleHitboxes(); } catch (e) {}
+    // let player query dynamic ground surface (pattern or base ground)
+    try {
+      if (player && handler && (player as any).getGroundY === undefined) {
+        (player as any).getGroundY = (wx: number) => {
+          try { return handler.getSurfaceYAt(wx); } catch (e) { return groundY; }
+        };
+      }
+    } catch (e) {}
+    // bind 'H' key to toggle obstacle hitbox debug visibility
+    window.addEventListener('keydown', (ev) => {
+      if (ev.code === 'KeyH') {
+        try {
+          const newState = handler.toggleHitboxes();
+          console.log('Pattern hitbox debug:', newState);
+        } catch (e) {}
+      }
+    });
+    // ensure each ground-only pattern includes both end caps so edges render correctly
+    const p1Factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length: 700 });
+    const p2Factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length: 700 });
+
+    const startX1 = 0;
+    const p1 = handler.addPattern(p1Factory, startX1);
+
+    // create a pit between p1 and p2
+    const pitWidth = 300;
+    // prefer the visual width (container bounds) if available so the pit
+    // sits between the visible edges of the pattern rather than the
+    // declared logical length.
+    let visualLength = p1 && p1.container ? (() => {
+      try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; }
+    })() : (p1 ? p1.length : 700);
+    const pitX = startX1 + visualLength;
+    // Register pit in gameplay so isOverPit works
+    try { (gameplay as any).getPits().push({ x: pitX, width: pitWidth }); } catch (e) { }
+
+    const startX2 = pitX + pitWidth;
+    handler.addPattern(p2Factory, startX2);
+    // place player on the first pattern's surface so they spawn on the pattern
+    try {
+      if (p1 && p1.container && player) {
+        // if player's worldX is already over p1, keep it; otherwise move player to near the left of p1
+        const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
+        const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
+        player.worldX = targetWorldX;
+        // position the player using the handler-provided surface Y so they
+        // stand where the pattern intends (e.g. centered on the road)
+        try {
+          const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
+          player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
+        } catch (e) {
+          player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
+        }
+        player.vy = 0;
+        player.onGround = true;
+        try { player.sprite.y = player.y; } catch (e) {}
+        if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps;
+      }
+    } catch (e) {}
+    try { 
+      // make sure player is on top of world children so it's visible
+      try { world.removeChild(player.sprite); } catch (e) {}
+      world.addChild(player.sprite);
+      console.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
+    } catch (e) {}
+  } catch (e) { console.warn('Pattern spawn failed', e); }
 
   // prevent repeating keydown from causing multiple jump calls
   let spaceHeld = false;
@@ -241,8 +327,12 @@ async function init() {
         spaceHeld = true;
         try {
           const did = (player as any).startJumpHold ? (player as any).startJumpHold() : (player as any).jump();
-          // if this is a mid-air (double) jump, trigger jump animation now
-              // no immediate animation on input; the ticker will pause run when airborne
+          // when jump input begins, pause the run animation immediately
+          try {
+            if (did && spinePlayerInstance && spinePlayerInstance.pauseTrack) {
+              spinePlayerInstance.pauseTrack(0);
+            }
+          } catch (e) {}
         } catch (err) {}
       }
     }
@@ -262,7 +352,12 @@ async function init() {
       pointerHeld = true;
       try {
         const did = (player as any).startJumpHold ? (player as any).startJumpHold() : (player as any).jump();
-        // no immediate animation on input; double-jump will not trigger visual jump
+        // when jump input begins, pause the run animation immediately
+        try {
+          if (did && spinePlayerInstance && spinePlayerInstance.pauseTrack) {
+            spinePlayerInstance.pauseTrack(0);
+          }
+        } catch (e) {}
       } catch (err) {}
     }
   });
@@ -307,28 +402,7 @@ async function init() {
     // Update player physics and position
     player.update(deltaSec, scroll, speed);
 
-    // detect landing/jump transitions so we can control the Spine base loop.
-    // If the player just landed, resume the default loop. If the player just
-    // left the ground (jump started) and input handlers didn't already trigger
-    // the animation, play the jump anim on track 0 to stop the run loop.
-    try {
-      (app as any).__prevOnGround = (app as any).__prevOnGround === undefined ? player.onGround : (app as any).__prevOnGround;
-      const prevOnGround = (app as any).__prevOnGround;
-      if (prevOnGround && !player.onGround) {
-        // jumped — pause the base run track until landing
-        try {
-          if (!(app as any).__jumpTriggered) {
-            if (spinePlayerInstance) try { spinePlayerInstance.pauseTrack(0); } catch (e) {}
-            (app as any).__jumpTriggered = true;
-          }
-        } catch (e) {}
-      } else if (!prevOnGround && player.onGround) {
-        // landed
-        try { (app as any).__jumpTriggered = false; } catch (e) {}
-        if (spinePlayerInstance) try { spinePlayerInstance.resumeDefaultLoop(); } catch (e) {}
-      }
-      (app as any).__prevOnGround = player.onGround;
-    } catch (e) {}
+    // Animation control: show jump when touching colliders or when in air
 
     // Obstacle interactions: allow landing on top when descending, otherwise block
     try {
@@ -351,17 +425,72 @@ async function init() {
             try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
             player.sprite.y = player.y;
             // allow horizontal movement while standing on top
-            // resume run animation when landing on a box top
-            try {
-              (app as any).__jumpTriggered = false;
-              if (spinePlayerInstance) try { spinePlayerInstance.resumeDefaultLoop(); } catch (e) {}
-            } catch (e) {}
           } else if (currBottom > obstacleTop) {
             // intersecting from side / too low: block forward movement
             player.worldX = Math.min(player.worldX, o.x - playerRadius - 2);
             player.sprite.x = player.worldX;
           }
         }
+      }
+    } catch (e) {}
+
+    // Animation policy: RUN only when touching ground colliders, pause when jumping
+    try {
+      if (spinePlayerInstance) {
+        let shouldShowRun = false;
+        
+        // Only show run animation when touching ground colliders
+        if (player.onGround) {
+          const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
+          const playerBottom = player.y + playerRadius;
+          
+          for (const o of obstacles) {
+            const left = o.x;
+            const right = o.x + o.width;
+            // check horizontal overlap
+            if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
+              const obstacleTop = o.sprite.y;
+              // if touching ground collider, show run
+              if (Math.abs(playerBottom - obstacleTop) <= 8 && o.isGround) {
+                shouldShowRun = true;
+                break;
+              }
+            }
+          }
+        }
+        
+        // Apply animation based on shouldShowRun
+        try {
+          const state = (spinePlayerInstance as any).spine ? (spinePlayerInstance as any).spine.state : null;
+          const track0 = state ? (typeof state.getCurrent === 'function' ? state.getCurrent(0) : (state.tracks ? state.tracks[0] : null)) : null;
+          const currentAnim = track0 && track0.animation ? track0.animation.name : null;
+          // If the run track exists and is paused its entry.timeScale will be 0.
+          const trackPaused = track0 && (track0.timeScale === 0 || track0.timeScale === 0.0);
+
+          if (shouldShowRun) {
+            // If run isn't the current animation, set it. Then always attempt
+            // to resume the track in case it was paused while airborne.
+            try {
+              if (currentAnim !== 'run') {
+                spinePlayerInstance.play && spinePlayerInstance.play('run', true, 0);
+              }
+              // resume even if the animation name is already 'run' but the
+              // track was paused (timeScale === 0)
+              if (trackPaused) {
+                try { console.debug && console.debug('LAND: resuming run animation'); } catch (e) {}
+              }
+              try { spinePlayerInstance.resumeTrack && spinePlayerInstance.resumeTrack(0); } catch (e) {}
+            } catch (e) {}
+          } else {
+            // Not touching ground colliders: pause run if it's playing and
+            // not already paused.
+            try {
+              if (currentAnim === 'run' && !(track0 && track0.timeScale === 0)) {
+                try { spinePlayerInstance.pauseTrack && spinePlayerInstance.pauseTrack(0); } catch (e) {}
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
       }
     } catch (e) {}
 
@@ -379,6 +508,8 @@ async function init() {
       }
     } catch (e) {}
 
+    // animation control handled above (run only when touching ground colliders, paused when jumping)
+
     // Counter-scale player sprite so it appears 1:1 on screen regardless of root scale
     player.setScreenScale(currentScale);
 
@@ -388,7 +519,7 @@ async function init() {
     try {
       if (cityLayer && cityLayer.update) cityLayer.update(scroll);
     } catch (e) {}
-    try { if (road && (road as any).update) (road as any).update(scroll); } catch (e) {}
+    // road visuals removed; patterns will handle ground art now.
 
     // Update label to show camera speed and distance
     label.text = `Speed(cam): ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)}`;
@@ -398,38 +529,26 @@ async function init() {
       debug.text = `worldX:${Math.round(player.worldX)} scroll:${Math.round(scroll)} screenX:${Math.round(screenX)}`;
     }
 
-    // update road mask to hide tiles where pits are
-    try {
-      const mask = roadMask;
-      mask.clear();
-      const pits = (gameplay as any).getPits ? (gameplay as any).getPits() : [];
-      const worldLength = Math.max(WIDTH * 10, Math.ceil(scroll + WIDTH * 2));
-      let drawX = 0;
-      const sorted = pits.slice().sort((a: any, b: any) => a.x - b.x);
-      for (const p of sorted) {
-        const segWidth = Math.max(0, p.x - drawX);
-        if (segWidth > 0) {
-          mask.rect(drawX, groundY, segWidth, HEIGHT - groundY).fill(0xffffff);
-        }
-        drawX = p.x + p.width;
-      }
-      if (drawX < worldLength) {
-        mask.rect(drawX, groundY, worldLength - drawX, HEIGHT - groundY).fill(0xffffff);
-      }
-    } catch (e) {}
+    // ground visuals removed; no road mask needed — patterns will control ground art.
   });
 
-  // Game over handling
+  // Game over handling (with grace/config)
+  // grace/config for game over
+  const GAME_OVER_GRACE_MS = 400;
   let gameOver = false;
-  function doGameOver() {
+  let gameOverQueuedTimer: ReturnType<typeof setTimeout> | null = null;
+  let gameOverQueuedReason: string | null = null;
+
+  function doGameOver(finalReason?: string) {
     if (gameOver) return;
     gameOver = true;
+    console.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
 
     // show a semi-opaque gray overlay and a Play Again button
     const overlay = new Graphics();
-    overlay.rect(0, 0, WIDTH, HEIGHT).fill(0x000000, 0.6);
+    overlay.rect(0, 0, WIDTH, HEIGHT).fill({ color: 0x000000, alpha: 0.6 });
     overlay.x = 0; overlay.y = 0;
-    overlay.name = 'gameoverOverlay';
+    overlay.label = 'gameoverOverlay';
     root.addChild(overlay);
 
     const goStyle = new TextStyle({ fill: '#ffffff', fontSize: 72, fontFamily: 'Helvetica, Arial' });
@@ -437,7 +556,7 @@ async function init() {
     go.anchor = { x: 0.5, y: 0.5 } as any;
     go.x = WIDTH / 2;
     go.y = HEIGHT / 2 - 80;
-    go.name = 'gameoverText';
+    go.label = 'gameoverText';
     root.addChild(go);
 
     const btnStyle = new TextStyle({ fill: '#000000', fontSize: 36, fontFamily: 'Helvetica, Arial' });
@@ -445,8 +564,8 @@ async function init() {
     const btnW = 260, btnH = 60;
     const btnX = WIDTH / 2 - btnW / 2;
     const btnY = HEIGHT / 2 + 10;
-    btnBg.rect(btnX, btnY, btnW, btnH).fill(0xffffff);
-    btnBg.name = 'playAgainBg';
+    btnBg.rect(btnX, btnY, btnW, btnH).fill({ color: 0xffffff });
+    btnBg.label = 'playAgainBg';
     root.addChild(btnBg);
 
     const playText = new Text({ text: 'Play Again', style: btnStyle });
@@ -454,7 +573,7 @@ async function init() {
     playText.y = btnY + (btnH - playText.height) / 2;
     playText.interactive = true;
     (playText as any).buttonMode = true;
-    playText.name = 'playAgainText';
+    playText.label = 'playAgainText';
     root.addChild(playText);
 
     const cleanupAndRestart = () => {
@@ -476,19 +595,46 @@ async function init() {
     btnBg.interactive = true; (btnBg as any).buttonMode = true; btnBg.on('pointerdown', cleanupAndRestart);
   }
 
+  function queueGameOver(reason: string) {
+    gameOverQueuedReason = reason;
+    if (gameOverQueuedTimer) {
+      clearTimeout(gameOverQueuedTimer as any);
+    }
+    gameOverQueuedTimer = setTimeout(() => {
+      gameOverQueuedTimer = null;
+      try {
+        // If the queued reason is 'left-pattern', only finalize if player still off-pattern.
+        if (reason === 'left-pattern') {
+          const handler = (gameplay as any)._handler;
+          const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : true;
+          if (onPattern) {
+            console.log('GameOver canceled (player returned to pattern):', reason);
+            return;
+          }
+        }
+      } catch (e) {}
+      doGameOver(reason);
+    }, GAME_OVER_GRACE_MS) as unknown as ReturnType<typeof setTimeout>;
+  }
+
   // check pits / falling for game over each frame
   app.ticker.add(() => {
     if (gameOver) return;
-    const groundTop = groundY - playerRadius; // same as in character
     try {
-      const overPit = (gameplay as any).isOverPit && (gameplay as any).isOverPit(player.worldX);
-      if (overPit && player.y > groundTop + 200) {
-        doGameOver();
-      }
       // if player falls behind the camera (e.g. drops into pit or is blocked and slips back), game over
       const screenX = player.sprite.x + world.x;
-      if (screenX < -playerRadius - 10) {
-        doGameOver();
+      const behindThreshold = -playerRadius - 10;
+      if (screenX < behindThreshold) {
+        // only behind-camera should queue a game over now
+        queueGameOver('behind-camera');
+      } else {
+        // if we had a queued 'behind-camera' game over but player returned on-screen, cancel it
+        if (gameOverQueuedTimer && gameOverQueuedReason === 'behind-camera') {
+          try { console.log('GameOver canceled (player returned on-screen):', gameOverQueuedReason); } catch (e) {}
+          clearTimeout(gameOverQueuedTimer as any);
+          gameOverQueuedTimer = null;
+          gameOverQueuedReason = null;
+        }
       }
     } catch (e) {}
   });
@@ -515,15 +661,8 @@ async function init() {
 
   // ensure ground tiles keep native pixel size regardless of root scale
   function applyGroundCounterScale(scale: number) {
-    try {
-      if (road && (road as any).container) {
-        const c = (road as any).container;
-        // counter-scale so visible size remains 1:1
-        c.scale.set(1 / scale, 1 / scale);
-        // because we changed the container scale, ensure its y remains at the ground top
-        c.y = groundY;
-      }
-    } catch (e) {}
+    // road visuals were removed — nothing to counter-scale here.
+    return;
   }
 
   // apply initial ground counter-scale
