@@ -1,30 +1,124 @@
 import { Container, Graphics, Text, Rectangle } from 'pixi.js';
 
-export function createGameplay({ world, bg, ground, label, WIDTH, HEIGHT, initialSpeed = 200, speedAccel = 8 }:
-  { world: Container; bg: Graphics; ground: Graphics; label: Text; WIDTH: number; HEIGHT: number; initialSpeed?: number; speedAccel?: number; }) {
-  let scroll = 0;
-  let speed = initialSpeed;
-  const baseInitialSpeed = initialSpeed;
-  // pits array (world coordinates). Each pit has x (worldX) and width.
-  const pits: { x: number; width: number }[] = [];
-  const PIT_INTERVAL = 1600; // spawn every 1600 px traveled
-  let nextPitTrigger = PIT_INTERVAL;
-  const PIT_WIDTH = 160;
-  const PIT_SPAWN_AHEAD = WIDTH * 0.8; // spawn the pit ahead of current view
+// PatternData describes a single pattern (segment) in the world. Each pattern
+// provides its length (in world pixels), the offset to the next pattern's
+// start, a difficulty tag, and the `container` which holds the PIXI display
+// objects for that pattern.
+export interface PatternData {
+  length: number;
+  nextStartOffset: number;
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  container: Container;
+}
 
-  // Obstacles: square blocks that appear on the road. We'll render them into
-  // their own container attached to the `world` so they move with the camera.
-  const obstaclesContainer = new Container();
-  world.addChild(obstaclesContainer);
-  type Obstacle = { x: number; width: number; height: number; sprite: Graphics };
-  const obstacles: Obstacle[] = [];
-  // spawn settings
-  const OB_MIN_INTERVAL = 600;
-  const OB_MAX_INTERVAL = 1400;
-  let nextObstacleTrigger = OB_MIN_INTERVAL * 1.5;
-  const OB_SPAWN_AHEAD = WIDTH * 0.9;
+export type PatternFactory = (startX: number) => PatternData;
 
-  function hslToHex(h: number, s: number, l: number) {
+// MapHandler manages a sequence of Patterns and provides compatibility helpers
+// (pits/obstacles) so existing code can keep working while we migrate to
+// Pattern-based world composition.
+export class MapHandler {
+  private world: Container;
+  private WIDTH: number;
+  private HEIGHT: number;
+  private bg: Graphics;
+  private label: Text;
+
+  // internal state (kept for compatibility with existing gameplay logic)
+  private scroll = 0;
+  private speed = 0;
+  private baseInitialSpeed = 200;
+
+  // legacy-style pits and obstacles (will be replaced by Patterns later)
+  private pits: { x: number; width: number }[] = [];
+  private obstacles: { x: number; width: number; height: number; sprite: Graphics }[] = [];
+  private obstaclesContainer: Container;
+
+  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; initialSpeed?: number; }) {
+    this.world = options.world;
+    this.bg = options.bg;
+    this.label = options.label;
+    this.WIDTH = options.WIDTH;
+    this.HEIGHT = options.HEIGHT;
+    this.baseInitialSpeed = options.initialSpeed ?? this.baseInitialSpeed;
+    this.speed = this.baseInitialSpeed;
+
+    this.obstaclesContainer = new Container();
+    this.world.addChild(this.obstaclesContainer);
+  }
+
+  // addPattern allows registering a Pattern factory; for now we keep this
+  // simple and spawn lightweight pattern containers when requested.
+  addPattern(factory: PatternFactory, startX: number) {
+    try {
+      const p = factory(startX);
+      p.container.x = startX;
+      this.world.addChild(p.container);
+      // patterns may include pits/obstacles internally — for backward
+      // compatibility we detect simple markers here in future.
+      return p;
+    } catch (e) {
+      return null as any;
+    }
+  }
+
+  // update advances the scroll, updates background color, and performs
+  // simple pit/obstacle spawning to preserve existing gameplay behaviour.
+  update(deltaSec: number, speedAccel = 8) {
+    this.speed += speedAccel * deltaSec;
+    this.scroll += this.speed * deltaSec;
+    this.world.x = -this.scroll;
+
+    // subtle background hue change to keep previous visual behaviour
+    const hue = (this.scroll * 0.02) % 360;
+    const col = MapHandler.hslToHex(hue, 70, 55);
+    this.bg.clear().rect(0, 0, this.WIDTH, this.HEIGHT).fill(col);
+
+    this.label.text = `Speed: ${Math.round(this.speed)} px/s  Distance: ${Math.floor(this.scroll)} px`;
+
+    // spawn simple pits and obstacles for now. These will be migrated to
+    // proper Pattern factories in the next step.
+    const PIT_INTERVAL = 1600;
+    const PIT_WIDTH = 160;
+    const PIT_SPAWN_AHEAD = this.WIDTH * 0.8;
+    if (this.scroll >= (this.pits.length ? this.pits[this.pits.length - 1].x - PIT_INTERVAL : PIT_INTERVAL)) {
+      const px = this.scroll + PIT_SPAWN_AHEAD;
+      this.pits.push({ x: px, width: PIT_WIDTH });
+    }
+
+    // obstacles (legacy)
+    const OB_MIN_INTERVAL = 600;
+    const OB_MAX_INTERVAL = 1400;
+    const OB_SPAWN_AHEAD = this.WIDTH * 0.9;
+    if (Math.random() < 0.01) {
+      const px = this.scroll + OB_SPAWN_AHEAD + Math.random() * 120;
+      const size = 80 + Math.floor(Math.random() * 80);
+      const g = new Graphics();
+      g.rect(0, 0, size, size).fill(0x996633);
+      g.x = px;
+      const groundTop = this.HEIGHT - 120;
+      g.y = groundTop - size;
+      g.interactive = true;
+      g.hitArea = new Rectangle(0, 0, size, size) as any;
+      const ob = { x: px, width: size, height: size, sprite: g } as any;
+      g.on('pointerdown', () => {
+        try { this.obstaclesContainer.removeChild(g); const idx = this.obstacles.indexOf(ob); if (idx >= 0) this.obstacles.splice(idx, 1); } catch (e) {}
+      });
+      this.obstaclesContainer.addChild(g);
+      this.obstacles.push(ob);
+    }
+
+    // cleanup obstacles behind camera
+    while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 200)) {
+      try { this.obstaclesContainer.removeChild(this.obstacles[0].sprite); } catch (e) {}
+      this.obstacles.shift();
+    }
+
+    return { scroll: this.scroll, speed: this.speed };
+  }
+
+  getObstacles() { return this.obstacles; }
+
+  static hslToHex(h: number, s: number, l: number) {
     s /= 100; l /= 100;
     const k = (n: number) => (n + h / 30) % 12;
     const a = s * Math.min(l, 1 - l);
@@ -33,130 +127,62 @@ export function createGameplay({ world, bg, ground, label, WIDTH, HEIGHT, initia
     return (to255(0) << 16) + (to255(8) << 8) + to255(4);
   }
 
-  function update(deltaSec: number) {
-    speed += speedAccel * deltaSec;
-
-    scroll += speed * deltaSec;
-    world.x = -scroll;
-
-    const hue = (scroll * 0.02) % 360;
-    const col = hslToHex(hue, 70, 55);
-    bg.clear().rect(0, 0, WIDTH, HEIGHT).fill(col);
-
-    // ground drawing is handled by the renderer (main) via a mask over the
-    // tiled road, so gameplay only manages pit positions and logic.
-
-    label.text = `Speed: ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)} px`;
-
-    // spawn pits when passing the trigger threshold
-    if (scroll >= nextPitTrigger) {
-      const px = scroll + PIT_SPAWN_AHEAD;
-      pits.push({ x: px, width: PIT_WIDTH });
-      nextPitTrigger += PIT_INTERVAL;
-    }
-
-    // spawn obstacles at random intervals
-    if (scroll >= nextObstacleTrigger) {
-      const px = scroll + OB_SPAWN_AHEAD + Math.random() * 120; // small random offset
-      // make obstacles larger by default
-      const size = 80 + Math.floor(Math.random() * 80); // square size 80-159
-      const g = new Graphics();
-      g.rect(0, 0, size, size).fill(0x996633);
-      // position in world coords (x = worldX where obstacle sits). We place
-      // the sprite's origin at top-left and y at ground top - size.
-      g.x = px;
-      const groundTop = HEIGHT - 120;
-      // place so obstacle rests on ground line
-      g.y = groundTop - size;
-      // make obstacle interactive so the player can tap/click it
-      g.interactive = true;
-      // set a hit area to ensure clicks anywhere on the square register
-      g.hitArea = new Rectangle(0, 0, size, size) as any;
-      // when tapped, remove the obstacle (player can interact with blocks)
-      // capture the obstacle object by reference so we can remove it safely
-      // create the obstacle object
-      const ob = { x: px, width: size, height: size, sprite: g } as any;
-      g.on('pointerdown', () => {
-        try {
-          // remove visual and from array so it no longer blocks
-          obstaclesContainer.removeChild(g);
-          const idx = obstacles.indexOf(ob);
-          if (idx >= 0) obstacles.splice(idx, 1);
-        } catch (e) {}
-      });
-      obstaclesContainer.addChild(g);
-      obstacles.push(ob);
-      // set next trigger to current + random interval
-      const interval = OB_MIN_INTERVAL + Math.floor(Math.random() * (OB_MAX_INTERVAL - OB_MIN_INTERVAL));
-      nextObstacleTrigger = scroll + interval;
-    }
-
-    // cleanup obstacles that have passed off-screen (behind camera)
-    while (obstacles.length && (obstacles[0].x + obstacles[0].width) < (scroll - 200)) {
-      try { obstaclesContainer.removeChild(obstacles[0].sprite); } catch (e) {}
-      obstacles.shift();
-    }
-
-    return { scroll, speed };
-  }
-
-  function getObstacles() { return obstacles; }
-
-  function isColliding(playerWorldX: number, playerY: number, playerRadius: number) {
-    // very simple AABB-ish test: check obstacles overlapping player's x and
-    // player's foot y touching the obstacle
-    for (const o of obstacles) {
-      const left = o.x;
-      const right = o.x + o.width;
-      if (playerWorldX + playerRadius > left && playerWorldX - playerRadius < right) {
-        // check vertical overlap: if player's y (center) is below top of obstacle
-        const obstacleTop = o.sprite.y;
-        if (playerY + playerRadius > obstacleTop) return true;
-      }
-    }
-    return false;
-  }
-
-  // Return an obstacle that should block the player (not allowing forward
-  // movement) — this is used to stop the player's worldX if they're running
-  // into the obstacle and not high enough to pass over it.
-  function getBlockingObstacle(playerWorldX: number, playerY: number, playerRadius: number) {
-    for (const o of obstacles) {
-      const left = o.x;
-      const right = o.x + o.width;
-      if (playerWorldX + playerRadius > left && playerWorldX - playerRadius < right) {
-        // player's bottom y coordinate
-        const playerBottom = playerY + playerRadius;
-        const obstacleTop = o.sprite.y;
-        // if player's bottom is below obstacle top (i.e., not clearing it), it's blocking
-        if (playerBottom > obstacleTop) return o;
-      }
-    }
-    return null;
-  }
-
-  function isOverPit(worldX: number) {
-    for (const p of pits) {
+  isOverPit(worldX: number) {
+    for (const p of this.pits) {
       if (worldX >= p.x && worldX <= p.x + p.width) return true;
     }
     return false;
   }
 
-  function reset() {
-    scroll = 0;
-    speed = baseInitialSpeed;
-    pits.length = 0;
-    nextPitTrigger = PIT_INTERVAL;
-    world.x = 0;
-    // clear obstacles
+  reset() {
+    this.scroll = 0;
+    this.speed = this.baseInitialSpeed;
+    this.pits.length = 0;
     try {
-      for (const o of obstacles) {
-        try { obstaclesContainer.removeChild(o.sprite); } catch (e) {}
-      }
+      for (const o of this.obstacles) { try { this.obstaclesContainer.removeChild(o.sprite); } catch (e) {} }
     } catch (e) {}
-    obstacles.length = 0;
-    nextObstacleTrigger = OB_MIN_INTERVAL * 1.5;
+    this.obstacles.length = 0;
   }
+}
 
-  return { update, getScroll: () => scroll, getSpeed: () => speed, isOverPit, getPits: () => pits, getObstacles, isColliding, getBlockingObstacle, reset };
+// Keep the old createGameplay function but back it with MapHandler so callers
+// in `main.ts` remain compatible. This gives us a clean migration path to
+// building Patterns in the next step.
+export function createGameplay({ world, bg, ground, label, WIDTH, HEIGHT, initialSpeed = 200, speedAccel = 8 }:
+  { world: Container; bg: Graphics; ground: Graphics; label: Text; WIDTH: number; HEIGHT: number; initialSpeed?: number; speedAccel?: number; }) {
+  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, initialSpeed });
+
+  return {
+    update: (deltaSec: number) => handler.update(deltaSec, speedAccel),
+    getScroll: () => (handler as any).scroll,
+    getSpeed: () => (handler as any).speed,
+    isOverPit: (x: number) => handler.isOverPit(x),
+    getPits: () => (handler as any).pits,
+    getObstacles: () => handler.getObstacles(),
+    isColliding: (x: number, y: number, r: number) => {
+      // reuse existing simple collision check against obstacles
+      for (const o of handler.getObstacles()) {
+        const left = o.x; const right = o.x + o.width;
+        if (x + r > left && x - r < right) {
+          const obstacleTop = o.sprite.y;
+          if (y + r > obstacleTop) return true;
+        }
+      }
+      return false;
+    },
+    getBlockingObstacle: (x: number, y: number, r: number) => {
+      for (const o of handler.getObstacles()) {
+        const left = o.x; const right = o.x + o.width;
+        if (x + r > left && x - r < right) {
+          const playerBottom = y + r;
+          const obstacleTop = o.sprite.y;
+          if (playerBottom > obstacleTop) return o;
+        }
+      }
+      return null;
+    },
+    reset: () => handler.reset(),
+    // expose handler for future pattern operations
+    _handler: handler
+  };
 }
