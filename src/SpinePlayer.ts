@@ -247,7 +247,7 @@ export class SpinePlayer {
 			const prev = (entry && entry.timeScale !== undefined) ? entry.timeScale : (this.desiredTimeScale || 1);
 			this._pausedTrackScales[track] = prev;
 			try {
-				console.debug && console.debug('SpinePlayer.pauseTrack', { track, animation: entry && entry.animation && entry.animation.name, prevTimeScale: prev, trackTime: entry && entry.trackTime });
+				
 			} catch (e) {}
 			try { entry.timeScale = 0; } catch (e) {}
 		} catch (e) {}

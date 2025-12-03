@@ -25,7 +25,17 @@ export function createTrapPattern(startX: number): PatternData {
     const x = baseX + i * (spikeWidth + 8);
     const g = new Graphics();
     // draw triangle (pointing upward). We draw its top at y = -spikeHeight
-    g.beginFill(0x333333).moveTo(x, -spikeHeight).lineTo(x + spikeWidth / 2, 0).lineTo(x + spikeWidth, -spikeHeight).closePath().endFill();
+    try {
+      if (typeof (g as any).fill === 'function') {
+        try { (g as any).fill(0x333333); } catch (e) { try { (g as any).fill({ color: 0x333333 }); } catch (e) {} }
+        try { (g as any).moveTo(x, -spikeHeight).lineTo(x + spikeWidth / 2, 0).lineTo(x + spikeWidth, -spikeHeight).closePath(); } catch (e) {}
+        try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
+      } else {
+        (g as any).beginFill && (g as any).beginFill(0x333333);
+        try { (g as any).moveTo(x, -spikeHeight).lineTo(x + spikeWidth / 2, 0).lineTo(x + spikeWidth, -spikeHeight).closePath(); } catch (e) {}
+        (g as any).endFill && (g as any).endFill();
+      }
+    } catch (e) {}
     // tag for potential collision detection by MapHandler
     (g as any).isTrap = true;
     container.addChild(g);

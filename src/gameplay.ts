@@ -13,7 +13,7 @@ export interface PatternData {
   pits?: { x: number; width: number }[];
   // optional obstacles described in local coordinates. MapHandler will
   // convert these to world coordinates and create invisible hitboxes.
-  obstacles?: { x: number; width: number; height: number }[];
+  obstacles?: { x: number; width: number; height: number; isGround?: boolean; isPlane?: boolean }[];
   // optional preferred player Y offset (local to container). If provided
   // MapHandler will use `container.y + playerYOffset` as the standing
   // surface for the player when on this pattern.
@@ -45,10 +45,11 @@ export class MapHandler {
   private obstaclesContainer: Container;
   private hitboxDebug = false;
   private groundThickness = 8;
+  private obstaclePadding = 0;
   // allow toggling random obstacle spawning (useful for debugging/testing)
   public allowRandomObstacles = true;
 
-  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; }) {
+  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
     this.world = options.world;
     this.bg = options.bg;
     this.label = options.label;
@@ -63,6 +64,7 @@ export class MapHandler {
     this.world.addChild(this.obstaclesContainer);
     this.hitboxDebug = !!(options as any).patternHitboxDebug;
     this.groundThickness = (options as any).patternGroundThickness ?? this.groundThickness;
+    this.obstaclePadding = (options as any).patternObstaclePadding ?? 100;
     // track spawned patterns (start, length, topY) for ground membership checks
     this.patterns = [] as { start: number; length: number; top?: number }[];
   }
@@ -110,9 +112,16 @@ export class MapHandler {
         const groundThickness = this.groundThickness || 8;
         const gcol = new Graphics();
         gcol.clear();
-        gcol.beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
-        gcol.drawRect(0, 0, visualLength, groundThickness);
-        gcol.endFill();
+        try {
+          if (typeof (gcol as any).fill === 'function') {
+            try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { /* some builds accept object signature */ try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
+          } else {
+            (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
+          }
+        } catch (e) {}
+        try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
+        // endFill not required in v8; if only old API exists, call endFill for safety
+        try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
         gcol.x = visualStart;
         // position collider so its bottom aligns with the visual top of ground
         gcol.y = worldGroundTop - groundThickness;
@@ -134,21 +143,35 @@ export class MapHandler {
       if (p.obstacles && p.obstacles.length) {
         for (const ob of p.obstacles) {
           const gx = startX + ob.x;
-          const gh = ob.height;
+          // apply configured padding to obstacle collider height so obstacles
+          // (like obs_1) can have thicker, more forgiving hitboxes for gameplay
+          const gh = (ob.height || 0) + (this.obstaclePadding || 0);
           const gw = ob.width;
           const g = new Graphics();
           // draw hitbox; visibility controlled by hitboxDebug for debugging
           g.clear();
-          g.lineStyle(this.hitboxDebug ? 2 : 0, 0xff0000, this.hitboxDebug ? 1 : 0);
-          g.beginFill(0xff0000, this.hitboxDebug ? 0.25 : 0);
-          g.drawRect(0, 0, gw, gh);
-          g.endFill();
+          // Draw hitbox fill only when debug is enabled. We intentionally
+          // avoid drawing a red stroke/outline to keep visuals clean.
+          try {
+            if (this.hitboxDebug) {
+              if (typeof (g as any).fill === 'function') {
+                try { (g as any).fill(0xff0000, 0.25); } catch (e) { try { (g as any).fill({ color: 0xff0000, alpha: 0.25 }); } catch (e) {} }
+              } else {
+                (g as any).beginFill && (g as any).beginFill(0xff0000, 0.25);
+              }
+              try { (g as any).rect ? (g as any).rect(0, 0, gw, gh) : (g as any).drawRect && (g as any).drawRect(0, 0, gw, gh); } catch (e) {}
+              try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
+            }
+          } catch (e) {}
           // place hitbox relative to the pattern's visual ground top
           g.x = gx;
           g.y = worldGroundTop - gh;
-          g.visible = this.hitboxDebug;
+          // if obstacle is marked as a plane, keep its collider hidden even
+          // when hitbox debug is enabled so players don't see it during
+          // normal debugging. Other obstacles follow `hitboxDebug`.
+          g.visible = this.hitboxDebug && !((ob as any).isPlane);
           this.obstaclesContainer.addChild(g);
-          this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g } as any);
+          this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g, isGround: !!(ob as any).isGround, isPlane: !!(ob as any).isPlane } as any);
         }
       }
 
@@ -289,9 +312,9 @@ export class MapHandler {
 // Keep the old createGameplay function but back it with MapHandler so callers
 // in `main.ts` remain compatible. This gives us a clean migration path to
 // building Patterns in the next step.
-export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternHitboxDebug = false, patternGroundThickness = 8 }:
-  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; }) {
-  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternHitboxDebug, patternGroundThickness });
+export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternHitboxDebug = false, patternGroundThickness = 8, patternObstaclePadding = 12 }:
+  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
+  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternHitboxDebug, patternGroundThickness, patternObstaclePadding });
 
   return {
     update: (deltaSec: number) => handler.update(deltaSec, speedAccel),
