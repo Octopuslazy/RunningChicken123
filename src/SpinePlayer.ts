@@ -265,7 +265,7 @@ export class SpinePlayer {
 			// if prev is falsy or zero for some reason, fall back to desiredTimeScale
 			if (!prev || !isFinite(prev) || prev <= 0) prev = (this.desiredTimeScale || 1);
 			try {
-				console.debug && console.debug('SpinePlayer.resumeTrack', { track, animation: entry && entry.animation && entry.animation.name, restoringTimeScale: prev, trackTime: entry && entry.trackTime });
+				
 			} catch (e) {}
 			try { entry.timeScale = prev; } catch (e) {}
 		} catch (e) {}

@@ -4,6 +4,9 @@ import { createCharacter } from './character';
 import { createGameplay } from './gameplay';
 import { loadTexture, loadSpriteStrip, splitSpriteStrip, splitSpriteStripFixed, loadIndexedFrames, loadSpriteStripAsSeparateTextures } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
+import makeDanger1 from './patterns/Danger1';
+import makeDanger2 from './patterns/Danger2';
+import makeDanger3 from './patterns/Danger3';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -261,6 +264,89 @@ async function init() {
       // preload double-jump effect to avoid texture warning
       await loadTexture('/Assets/_arts/effect_double jump.png');
     } catch (e) {}
+    try {
+      await loadTexture('/Assets/_arts/bg_2_bush.png');
+    } catch (e) {}
+    try {
+      // preload double-jump effect to avoid texture warning
+      await loadTexture('/Assets/_arts/bg_2_tree.png');
+    } catch (e) {}
+    try {
+      // preload double-jump effect to avoid texture warning
+      await loadTexture('/Assets/_arts/bg_1_billboard.png');
+    } catch (e) {}
+    try {
+      // preload double-jump effect to avoid texture warning
+      await loadTexture('/Assets/_arts/effect_va cham.png');
+    } catch (e) {}
+    try {
+      // preload double-jump effect to avoid texture warning
+      await loadTexture('/Assets/_arts/bg_1_wheels.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/bg_1_store1.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/bg_1_store2.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/bg_1_standee2.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/bg_3_plane.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/icon_timer.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_0.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_1.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_2.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_3.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_4.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_5.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obj_6.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obs_1.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obs_2.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/obs_3.png');
+    } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/score.png');
+    } catch (e) {}
 
     const handler = (gameplay as any)._handler;
     // enable hitbox debug by default so colliders are visible for verification
@@ -283,16 +369,42 @@ async function init() {
       }
     });
 
-    // Create and place multiple ground-only patterns (~20) sequentially
+    // Create and place multiple ground-only patterns sequentially
     try {
       const patterns: any[] = [];
-      const NUM_PATTERNS = 20;
+      const NUM_PATTERNS = 200;
       const PIT_WIDTH = 300; // pit between every two patterns
+
+      // --- Spawn configuration (tweak these to change randomness/weights) ---
+      const PATTERN_LENGTH = 750; // default visual length for most patterns
+      const PROB_USE_DANGER = 0.70; // chance to use a Danger pattern instead of plain ground
+      // Weights for each Danger variant (relative weights; they are normalized)
+      const DANGER_WEIGHTS = { d1: 0.3, d2: 0.4, d3: 0.3 };
+      const DANGER3_LENGTH = 300; // explicit length to use for Danger3
+
       let cursorX = 0;
       for (let i = 0; i < NUM_PATTERNS; i++) {
-        const length = 700;
-        // always include left and right end caps for each pattern
-        const factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
+        const length = PATTERN_LENGTH;
+
+        // Select factory using configurable probabilities and weights
+        let factory: any = null;
+        if (Math.random() < PROB_USE_DANGER) {
+          // pick a danger variant using weighted random
+          const r = Math.random();
+          const total = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3) || 1;
+          const t1 = DANGER_WEIGHTS.d1 / total;
+          const t2 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2) / total;
+          if (r < t1) {
+            factory = makeDanger1({ leftEnd: true, rightEnd: true, length });
+          } else if (r < t2) {
+            factory = makeDanger2({ leftEnd: true, rightEnd: true, length });
+          } else {
+            factory = makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH });
+          }
+        } else {
+          factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
+        }
+
         const p = handler.addPattern(factory, cursorX);
         patterns.push(p);
 
