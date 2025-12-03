@@ -77,6 +77,8 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     jump() {
       // allow jump from ground or perform an extra mid-air jump if available
       const canJump = (this.onGround === true) || ((this as any).jumpsLeft && (this as any).jumpsLeft > 0);
+      // record previous remaining mid-air jumps to detect a double-jump
+      const prevJumpsLeft = (this as any).jumpsLeft !== undefined ? (this as any).jumpsLeft : ((this as any).maxJumps !== undefined ? (this as any).maxJumps : 1);
       const wasOnGround = this.onGround;
       if (canJump) {
         this.vy = -jumpSpeed;
@@ -102,21 +104,112 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
           try {
             const parent: any = (this.sprite as any).parent;
             const tex = Texture.from('/Assets/_arts/effect_double jump.png');
+
+            // main effect (original size)
             const eff = new Sprite(tex);
             eff.anchor.set(0.5, 0.5);
-            // place slightly behind player on X (world coords)
             eff.x = this.worldX - 40;
             eff.y = this.y;
             eff.alpha = 1;
-            // try to insert behind the player sprite if possible
+
+            // second effect (scaled 0.6) placed slightly further back
+            const eff2 = new Sprite(tex);
+            eff2.anchor.set(0.5, 0.5);
+            eff2.x = this.worldX - 60;
+            eff2.y = this.y + 4;
+            eff2.alpha = 0.95;
+            eff2.scale.set(0.6, 0.6);
+
+            // third effect (scaled 0.3) placed further back for depth
+            const eff3 = new Sprite(tex);
+            eff3.anchor.set(0.5, 0.5);
+            eff3.x = this.worldX - 80;
+            eff3.y = this.y + 6;
+            eff3.alpha = 0.9;
+            eff3.scale.set(0.3, 0.3);
+
+            // try to insert effects behind the player sprite if possible
             if (parent && typeof parent.addChild === 'function') {
               try {
                 const idx = typeof parent.getChildIndex === 'function' ? parent.getChildIndex(this.sprite) : -1;
-                if (idx >= 0) parent.addChildAt(eff, Math.max(0, idx)); else parent.addChild(eff);
-              } catch (e) { parent.addChild(eff); }
+                if (idx >= 0) {
+                  // insert eff3, eff2, eff so eff3 is furthest back
+                  parent.addChildAt(eff3, Math.max(0, idx));
+                  parent.addChildAt(eff2, Math.max(0, idx + 1));
+                  parent.addChildAt(eff, Math.max(0, idx + 2));
+                } else {
+                  parent.addChild(eff3);
+                  parent.addChild(eff2);
+                  parent.addChild(eff);
+                }
+              } catch (e) { parent.addChild(eff3); parent.addChild(eff2); parent.addChild(eff); }
             }
-            // remove effect after a short time
+
+            // remove effects after a short time
             setTimeout(() => { try { eff.parent && eff.parent.removeChild(eff); } catch (e) {} }, 420);
+            setTimeout(() => { try { eff2.parent && eff2.parent.removeChild(eff2); } catch (e) {} }, 520);
+            setTimeout(() => { try { eff3.parent && eff3.parent.removeChild(eff3); } catch (e) {} }, 620);
+
+            // Only perform the 360° spin when this is the 'double-jump' (i.e. last available mid-air jump)
+            if (prevJumpsLeft === 1) {
+              try {
+                const spinDuration = 520; // ms
+                const spriteAny: any = this.sprite;
+                // ensure rotation pivot is the visual center of the sprite/container
+                let prevPivot: any = { x: 0, y: 0 };
+                let prevPos: any = { x: spriteAny.x, y: spriteAny.y };
+                try {
+                  if (spriteAny.pivot) {
+                    prevPivot.x = spriteAny.pivot.x || 0;
+                    prevPivot.y = spriteAny.pivot.y || 0;
+                  }
+                  prevPos.x = spriteAny.x; prevPos.y = spriteAny.y;
+                  const b = spriteAny.getLocalBounds ? spriteAny.getLocalBounds() : null;
+                  if (b) {
+                    const cx = b.x + b.width / 2;
+                    const cy = b.y + b.height / 2;
+                    try { spriteAny.pivot && typeof spriteAny.pivot.set === 'function' ? spriteAny.pivot.set(cx, cy) : (spriteAny.pivot = { x: cx, y: cy }); } catch (e) {}
+                    // keep world position consistent
+                    spriteAny.x = prevPos.x; spriteAny.y = prevPos.y;
+                  }
+                } catch (e) {}
+
+                // cancel previous spin if running
+                if (spriteAny.__spinCancel) {
+                  try { spriteAny.__spinCancel(); } catch (e) {}
+                  spriteAny.__spinCancel = null;
+                }
+
+                const startRot = (spriteAny.rotation || 0) as number;
+                const targetRot = startRot + Math.PI * 2;
+                const startTime = (performance && performance.now) ? performance.now() : Date.now();
+                let rafId: number | null = null;
+                function step(now: number) {
+                  const t = Math.min(1, (now - startTime) / spinDuration);
+                  // ease-out cubic for nicer motion
+                  const eased = 1 - Math.pow(1 - t, 3);
+                  try { spriteAny.rotation = startRot + (targetRot - startRot) * eased; } catch (e) {}
+                  if (t < 1) {
+                    rafId = requestAnimationFrame(step);
+                  } else {
+                    // restore rotation and pivot to avoid numeric accumulation
+                    try { spriteAny.rotation = startRot; } catch (e) {}
+                    try { if (spriteAny.pivot && typeof spriteAny.pivot.set === 'function') spriteAny.pivot.set(prevPivot.x, prevPivot.y); else spriteAny.pivot = prevPivot; } catch (e) {}
+                    try { spriteAny.x = prevPos.x; spriteAny.y = prevPos.y; } catch (e) {}
+                    rafId = null;
+                  }
+                }
+                rafId = requestAnimationFrame(step);
+                // provide a cancel function in case another spin starts
+                spriteAny.__spinCancel = () => {
+                  if (rafId) try { cancelAnimationFrame(rafId); } catch (e) {};
+                  try { spriteAny.rotation = startRot; } catch (e) {};
+                  try { if (spriteAny.pivot && typeof spriteAny.pivot.set === 'function') spriteAny.pivot.set(prevPivot.x, prevPivot.y); else spriteAny.pivot = prevPivot; } catch (e) {}
+                  try { spriteAny.x = prevPos.x; spriteAny.y = prevPos.y; } catch (e) {};
+                  rafId = null;
+                };
+              } catch (e) {}
+            }
           } catch (e) {}
         }
 
