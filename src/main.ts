@@ -8,6 +8,9 @@ import { makeGroundPattern } from './patterns/groundOnly';
 const WIDTH = 1920;
 const HEIGHT = 1080;
 
+// Global character size factor (e.g. 0.6 = 60% of previous size)
+const CHARACTER_SCALE_FACTOR = 0.6;
+
 const app = new Application();
 
 async function init() {
@@ -170,12 +173,12 @@ async function init() {
   let player: any = null;
   // Use `char.png` as the static character texture (no animation)
   const charTex = await loadTexture('/Assets/_arts/char.png');
-  if (charTex) {
+    if (charTex) {
     console.log('Using char.png for player texture');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
+    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
   } else {
     console.log('char.png not found; falling back to graphics');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 });
+    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
   }
 
   player.worldX = PLAYER_X;
@@ -207,7 +210,8 @@ async function init() {
       const sp = new SpinePlayer('kfc_chicken');
       await sp.load('/Assets/Arts/anim/');
       const avail = sp.getAnimations();
-      sp.setScale(1.5);
+      // Apply global character scale factor so Spine visuals match the desired size
+      sp.setScale(1.5 * CHARACTER_SCALE_FACTOR);
       sp.setPosition(player.worldX, player.y);
 
       // attach the new view
@@ -252,6 +256,10 @@ async function init() {
     } catch (e) {}
     try {
       await loadTexture('/Assets/_arts/bg_1_light.png');
+    } catch (e) {}
+    try {
+      // preload double-jump effect to avoid texture warning
+      await loadTexture('/Assets/_arts/effect_double jump.png');
     } catch (e) {}
 
     const handler = (gameplay as any)._handler;
@@ -526,7 +534,8 @@ async function init() {
     // animation control handled above (run only when touching ground colliders, paused when jumping)
 
     // Counter-scale player sprite so it appears 1:1 on screen regardless of root scale
-    player.setScreenScale(currentScale);
+    // (kept for safety if player not yet initialized elsewhere)
+    try { player.setScreenScale && player.setScreenScale(currentScale); } catch (e) {}
 
     // update parallax backgrounds and tiled road scrolling
     try { if (cloudBigLayer && cloudBigLayer.update) cloudBigLayer.update(scroll); } catch (e) {}
@@ -632,7 +641,9 @@ async function init() {
   function updateScale() {
     const sw = canvas.clientWidth || window.innerWidth;
     const sh = canvas.clientHeight || window.innerHeight;
-    let scale = Math.min(sw / WIDTH, sh / HEIGHT);
+    // Scale so the game occupies ~90% of the available viewport
+    // (keeps aspect, fits within both dimensions)
+    let scale = Math.min((sw * 0.65) / WIDTH, (sh * 0.65) / HEIGHT);
     scale = Math.min(scale, 1);
 
     root.scale.set(scale, scale);
@@ -640,6 +651,8 @@ async function init() {
     currentScale = scale;
     root.x = (sw - WIDTH * scale) / 2;
     root.y = (sh - HEIGHT * scale) / 2;
+    // Call player counter-scaling on resize so sprite stays 1:1 on screen
+    try { if (player && (player as any).setScreenScale) (player as any).setScreenScale(currentScale); } catch (e) {}
   }
 
   updateScale();
@@ -648,6 +661,24 @@ async function init() {
     applyCanvasCssSize();
     updateScale();
   }
+
+  // also react to fullscreen changes
+  window.addEventListener('fullscreenchange', () => {
+    try { onResize(); } catch (e) {}
+  });
+
+  // Watch for devicePixelRatio changes (some browsers don't fire resize on zoom)
+  let _lastDPR = window.devicePixelRatio;
+  const _dprWatcher = setInterval(() => {
+    const dpr = window.devicePixelRatio;
+    if (dpr !== _lastDPR) {
+      _lastDPR = dpr;
+      try { onResize(); } catch (e) {}
+    }
+  }, 500);
+
+  // clear watcher when page unloads
+  window.addEventListener('beforeunload', () => { try { clearInterval(_dprWatcher); } catch (e) {} });
 
   // ensure ground tiles keep native pixel size regardless of root scale
   function applyGroundCounterScale(scale: number) {

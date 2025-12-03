@@ -77,19 +77,49 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     jump() {
       // allow jump from ground or perform an extra mid-air jump if available
       const canJump = (this.onGround === true) || ((this as any).jumpsLeft && (this as any).jumpsLeft > 0);
+      const wasOnGround = this.onGround;
       if (canJump) {
         this.vy = -jumpSpeed;
         this.onGround = false;
-        if (!(this as any).onGround) {
-          // if we used a mid-air jump, consume one
+
+        if (wasOnGround) {
+          // leaving ground: consume the initial jump and set remaining mid-air jumps
+          if ((this as any).maxJumps !== undefined) {
+            // after using ground jump, remaining mid-air jumps = maxJumps - 1
+            (this as any).jumpsLeft = Math.max(0, (this as any).maxJumps - 1);
+          } else {
+            (this as any).jumpsLeft = 1;
+          }
+        } else {
+          // mid-air jump: consume one
           if ((this as any).jumpsLeft !== undefined) {
             (this as any).jumpsLeft = Math.max(0, (this as any).jumpsLeft - 1);
           }
         }
-        // if jumping from ground, ensure jumpsLeft accounts for remaining mid-air jumps
-        if ((this as any).onGround === false && (this as any).jumpsLeft === undefined) {
-          (this as any).jumpsLeft = (this as any).maxJumps ? (this as any).maxJumps - 1 : 1;
+
+        // If this was a mid-air jump (i.e. not on ground before), spawn a visual effect behind the player
+        if (!wasOnGround) {
+          try {
+            const parent: any = (this.sprite as any).parent;
+            const tex = Texture.from('/Assets/_arts/effect_double jump.png');
+            const eff = new Sprite(tex);
+            eff.anchor.set(0.5, 0.5);
+            // place slightly behind player on X (world coords)
+            eff.x = this.worldX - 40;
+            eff.y = this.y;
+            eff.alpha = 1;
+            // try to insert behind the player sprite if possible
+            if (parent && typeof parent.addChild === 'function') {
+              try {
+                const idx = typeof parent.getChildIndex === 'function' ? parent.getChildIndex(this.sprite) : -1;
+                if (idx >= 0) parent.addChildAt(eff, Math.max(0, idx)); else parent.addChild(eff);
+              } catch (e) { parent.addChild(eff); }
+            }
+            // remove effect after a short time
+            setTimeout(() => { try { eff.parent && eff.parent.removeChild(eff); } catch (e) {} }, 420);
+          } catch (e) {}
         }
+
         return true;
       }
       return false;
