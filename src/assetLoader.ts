@@ -1,10 +1,72 @@
 import { Assets, Texture, Rectangle } from 'pixi.js';
 
+// If `scripts/generate-inlined-assets.mjs` has been run it will write
+// `src/inlinedAssets.ts` which assigns a global `window.__INLINED_ASSETS__`.
+// We prefer that mapping when resolving asset requests so the final playable
+// can use data URLs for images & audio.
+declare const __INLINED_ASSETS__: Record<string, string> | undefined;
+
+function getMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() || '';
+  const mimeMap: Record<string, string> = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'webp': 'image/webp',
+    'gif': 'image/gif',
+    'mp3': 'audio/mpeg',
+    'wav': 'audio/wav',
+    'ogg': 'audio/ogg',
+    'mp4': 'video/mp4',
+    'webm': 'video/webm',
+    'ttf': 'font/ttf',
+    'woff': 'font/woff',
+    'woff2': 'font/woff2',
+    'json': 'application/json',
+    'txt': 'text/plain'
+  };
+  return mimeMap[ext] || 'application/octet-stream';
+}
+
+export function resolvePath(p: string): string {
+  try {
+    const inlinedAssets = (window as any).__INLINED_ASSETS__ || __INLINED_ASSETS__;
+    if (typeof inlinedAssets !== 'undefined' && inlinedAssets) {
+      // try several common key forms used in project code
+      const keys = [
+        p,                          // original path
+        p.replace(/^\.\//, ''),     // remove ./
+        p.replace(/^\//, ''),       // remove leading /
+        p.replace(/^\.\/Assets\//, 'Assets/'), // ./Assets/ -> Assets/
+        p.replace(/^\/Assets\//, 'Assets/'),   // /Assets/ -> Assets/
+      ];
+      
+      for (const k of keys) {
+        if (inlinedAssets[k]) {
+          // inlinedAssets[k] is now base64 string, need to create data URI
+          const mime = getMimeType(k);
+          return `data:${mime};base64,${inlinedAssets[k]}`;
+        }
+      }
+      
+      // Log missing assets for debugging (only in development)
+      if (process.env.NODE_ENV === 'development') {
+        console.warn(`Asset not found in inlined assets: ${p}. Available keys start with:`, 
+                    Object.keys(inlinedAssets).slice(0, 5));
+      }
+    }
+  } catch (err) {
+    // ignore and fall back to original path
+  }
+  return p;
+}
+
 // Simple wrapper around PIXI Assets to centralize loading and error handling.
 // Returns `Texture` or `null` if load fails.
 export async function loadTexture(path: string): Promise<Texture | null> {
   try {
-    const tex = await Assets.load(path);
+    const src = resolvePath(path);
+    const tex = await Assets.load(src);
     return tex as Texture;
   } catch (err) {
     console.warn(`AssetLoader: failed to load ${path}:`, err);
@@ -24,7 +86,8 @@ export default { loadTexture, loadTextures };
 // Load a horizontal sprite strip and split into `frames` subtextures.
 export async function loadSpriteStrip(path: string, frames: number): Promise<Texture[] | null> {
   try {
-    const tex = await Assets.load(path) as Texture;
+    const src = resolvePath(path);
+    const tex = await Assets.load(src) as Texture;
     const w = tex.width;
     const h = tex.height;
     if (!w || !h || frames <= 0) return null;
@@ -95,7 +158,7 @@ export async function loadIndexedFrames(basePathNoExt: string, count: number): P
     try {
       const loaded = await Promise.all(candidates.map(async (p) => {
         try {
-          const t = await Assets.load(p) as Texture;
+          const t = await Assets.load(resolvePath(p)) as Texture;
           return t;
         } catch (err) {
           return null;
@@ -121,7 +184,7 @@ async function loadImage(path: string): Promise<HTMLImageElement> {
     img.crossOrigin = 'anonymous';
     img.onload = () => resolve(img);
     img.onerror = (e) => reject(e);
-    img.src = path;
+    img.src = resolvePath(path);
   });
 }
 
@@ -178,6 +241,38 @@ export function splitSpriteStripFixed(tex: Texture, tileW = 32, tileH = 32): Tex
     return out;
   } catch (err) {
     console.warn('AssetLoader: failed to split sprite strip fixed:', err);
+    return null;
+  }
+}
+
+// Load text file (for atlas, JSON, etc.)
+export async function loadText(path: string): Promise<string | null> {
+  try {
+    const src = resolvePath(path);
+    if (src.startsWith('data:')) {
+      // If it's a data URI, fetch and decode
+      const response = await fetch(src);
+      return await response.text();
+    } else {
+      // Regular file path
+      const response = await fetch(src);
+      if (!response.ok) return null;
+      return await response.text();
+    }
+  } catch (err) {
+    console.warn(`AssetLoader: failed to load text ${path}:`, err);
+    return null;
+  }
+}
+
+// Load JSON file
+export async function loadJson(path: string): Promise<any | null> {
+  try {
+    const textContent = await loadText(path);
+    if (!textContent) return null;
+    return JSON.parse(textContent);
+  } catch (err) {
+    console.warn(`AssetLoader: failed to load JSON ${path}:`, err);
     return null;
   }
 }

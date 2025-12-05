@@ -12,6 +12,8 @@ import makeDanger5 from './patterns/Danger5';
 import Pickup from './prefabs/Pickup';
 import SoundController from './sound/SoundController';
 import showGameOver from './ui/gameOver';
+import adSdk from './sdk/adSdk';
+import './inlinedAssets';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -375,9 +377,9 @@ async function init() {
       // preload double-jump effect to avoid texture warning
       await loadTexture('/Assets/_arts/effect_double jump.png');
     } catch (e) {}
-    try {
-      await loadTexture('/Assets/_arts/bg_2_bush.png');
-    } catch (e) {}
+    // try {
+    //   await loadTexture('/Assets/_arts/bg_2_bush.png');
+    // } catch (e) {}
     try {
       // preload double-jump effect to avoid texture warning
       await loadTexture('/Assets/_arts/bg_2_tree.png');
@@ -1317,15 +1319,19 @@ async function init() {
           // ensure overlay is added to the top-level stage so it truly covers screen
           try { app.stage.addChild(overlay); } catch (e) { try { root.addChild(overlay); } catch (e) {} }
 
+          // Report reward overlay impression to ad SDK
+          try { adSdk && typeof adSdk.report === 'function' && adSdk.report('reward_impression', { score: score }); } catch (e) {}
+
           // handlers
           btnG.on && btnG.on('pointerdown', () => {
             try {
-              // open reward link in a new tab (keep overlay visible so player can later resume)
-              try { window.open(REWARD_URL, '_blank'); } catch (e) { try { window.location.href = REWARD_URL; } catch (e) {} }
+              // report click and open reward via ad SDK (mraid support inside SDK)
+              try { adSdk && typeof adSdk.report === 'function' && adSdk.report('reward_click', { score: score }); } catch (e) {}
+              try { adSdk && typeof adSdk.clickthrough === 'function' ? adSdk.clickthrough(REWARD_URL) : window.open(REWARD_URL, '_blank'); } catch (e) { try { window.location.href = REWARD_URL; } catch (e) {} }
             } catch (e) {}
             // do NOT remove the overlay here; leave it so the player can press 'Later' to resume
             // mark reward claimed; keep game stopped until the player explicitly resumes via 'Later'
-            try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
+            try { rewardClaimed = true; controlsEnabled = false; try { adSdk && typeof adSdk.rewardClaim === 'function' && adSdk.rewardClaim({ score: score }); } catch (e) {} } catch (e) {}
           });
 
           closeG.on && closeG.on('pointerdown', () => {
@@ -1523,6 +1529,8 @@ async function init() {
 
     gameOver = true;
     L.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
+
+    try { adSdk && typeof adSdk.report === 'function' && adSdk.report('game_over', { reason: finalReason ?? gameOverQueuedReason ?? 'unknown' }); } catch (e) {}
 
     // Pause Spine animation if available
     try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}

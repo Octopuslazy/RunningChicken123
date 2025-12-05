@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, Sprite, Texture, Text, TextStyle } from 'pixi.js';
 import SoundController from '../sound/SoundController';
+import adSdk from '../sdk/adSdk';
 
 export type ShowGameOverParams = {
   app: Application;
@@ -139,8 +140,10 @@ export function showGameOver(params: ShowGameOverParams) {
           // remove the overlay first so visuals are cleaned up immediately
           try { cleanupAndReset(); } catch (e) {}
           if (typeof onPlayAgain === 'function') {
+            try { adSdk && typeof adSdk.report === 'function' && adSdk.report('replay'); } catch (e) {}
             try { onPlayAgain(); } catch (e) {}
           } else {
+            try { adSdk && typeof adSdk.report === 'function' && adSdk.report('replay'); } catch (e) {}
             try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} }
           }
         } catch (e) {}

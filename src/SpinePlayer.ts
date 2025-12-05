@@ -1,6 +1,7 @@
 import { Texture, Assets } from 'pixi.js';
 // use the spine-pixi runtime for Pixi v8
 import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
+import { loadText, loadTexture, loadJson, resolvePath } from './assetLoader';
 
 
 // Lightweight Spine player wrapper. Responsibilities:
@@ -39,19 +40,16 @@ export class SpinePlayer {
 			throw new Error('@esotericsoftware/spine-pixi-v8 has unexpected exports. module keys: ' + modKeys + ' ; spineNS keys: ' + nsKeys);
 		}
 
-		// fetch skeleton json
-		const jsonResp = await fetch(`${basePath}${this.name}.json`);
-		if (!jsonResp.ok) throw new Error('Failed to fetch skeleton JSON');
-		const jsonRaw = await jsonResp.json();
+		// load skeleton json using assetLoader
+		const jsonRaw = await loadJson(`${basePath}${this.name}.json`);
+		if (!jsonRaw) throw new Error('Failed to load skeleton JSON');
 
-		// try atlas candidates
+		// try atlas candidates using assetLoader
 		const atlasCandidates = [`${basePath}${this.name}.atlas`, `${basePath}${this.name}.atlas.txt`];
 		let atlasText: string | null = null;
 		for (const a of atlasCandidates) {
-			try {
-				const r = await fetch(a);
-				if (r.ok) { atlasText = await r.text(); break; }
-			} catch (e) { /* ignore */ }
+			atlasText = await loadText(a);
+			if (atlasText) break;
 		}
 		if (!atlasText) throw new Error('Atlas file not found for ' + this.name);
 
@@ -69,23 +67,18 @@ export class SpinePlayer {
 			throw new Error('Spine runtime missing parser classes; ensure @pixi-spine/runtime is available. Found: ' + JSON.stringify(found));
 		}
 
-		// attempt to let Pixi Assets load the atlas so pages are textures
-		let atlas: any = null;
-		try {
-			try {
-				const loaded = await (Assets as any).load(`${basePath}${this.name}.atlas`);
-				if (loaded && (loaded.pages || loaded.regions || loaded.getRegions)) {
-					atlas = loaded;
-				}
-			} catch (e) { atlas = null; }
-		} catch (e) { atlas = null; }
-
-		if (!atlas) {
-			atlas = new TextureAtlasCtor(atlasText, (line: string) => {
+		// Create TextureAtlas manually from loaded text to avoid CORS issues with inlined assets
+		atlas = new TextureAtlasCtor(atlasText, (line: string) => {
 				const full = basePath + line;
-				try { return Texture.from(full); } catch (e) { console.warn('Texture.from failed for', full, e); return Texture.WHITE; }
+				try { 
+					// Use loadTexture from assetLoader to handle inlined assets
+					const src = resolvePath(full);
+					return Texture.from(src); 
+				} catch (e) { 
+					console.warn('Texture.from failed for', full, e); 
+					return Texture.WHITE; 
+				}
 			});
-		}
 
 		const atlasLoader = new AtlasAttachmentLoaderCtor(atlas);
 		const skeletonJson = new SkeletonJsonCtor(atlasLoader);
