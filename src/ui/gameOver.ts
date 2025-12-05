@@ -1,4 +1,5 @@
 import { Application, Container, Graphics, Sprite, Texture, Text, TextStyle } from 'pixi.js';
+import SoundController from '../sound/SoundController';
 
 export type ShowGameOverParams = {
   app: Application;
@@ -16,8 +17,9 @@ export function showGameOver(params: ShowGameOverParams) {
   let _btnPulseTicker: ((ticker?: any) => void) | null = null;
 
   try {
-    const sw = canvas.clientWidth || window.innerWidth;
-    const sh = canvas.clientHeight || window.innerHeight;
+    // Use the renderer/screen size so the overlay matches the game's internal resolution
+    const sw = (app.screen && (app.screen as any).width) ? (app.screen as any).width : (app.renderer && (app.renderer as any).width) || canvas.clientWidth || window.innerWidth;
+    const sh = (app.screen && (app.screen as any).height) ? (app.screen as any).height : (app.renderer && (app.renderer as any).height) || canvas.clientHeight || window.innerHeight;
 
     // Try to use a gameover image, otherwise fall back to a dark overlay
     let usedContainer: Container | null = null;
@@ -47,8 +49,10 @@ export function showGameOver(params: ShowGameOverParams) {
         container.addChild(bg);
         container.addChild(spr);
         container.zIndex = 100000;
+        try { app.stage.sortableChildren = true; } catch (e) {}
         try { app.stage.addChild(container); } catch (e) { try { root.addChild(container); } catch (e) {} }
         usedContainer = container;
+        try { SoundController.stopAllAndPlay('nan.mp3'); } catch (e) {}
       }
     } catch (e) {
       usedContainer = null;
@@ -74,12 +78,18 @@ export function showGameOver(params: ShowGameOverParams) {
 
     overlayContainer = usedContainer;
 
-    const gs = new TextStyle({ fill: '#ffdddd', fontSize: 96, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' });
+    // Use a simple valid color string for black. If the background is dark
+    // add a light stroke so the text remains readable. Cast the options to
+    // `any` to avoid TypeScript complaining about properties that differ
+    // between Pixi type versions (e.g. `strokeThickness`). We still set
+    // the strokeThickness explicitly on the created TextStyle instance.
+    const gs = new TextStyle({ fill: '#000000', stroke: '#ffffff', fontSize: 96, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' } as any);
+    try { (gs as any).strokeThickness = 6; } catch (e) {}
     gt = new Text({ text: 'GAME OVER', style: gs });
     try { if (gt.anchor && (gt as any).anchor.set) (gt as any).anchor.set(0.5, 0.5); } catch (e) {}
     gt.x = sw / 2;
     gt.y = sh / 2 - 20;
-    try { app.stage.addChild(gt); } catch (e) { try { root.addChild(gt); } catch (e) {} }
+    try { overlayContainer && overlayContainer.addChild(gt); } catch (e) { try { app.stage.addChild(gt); } catch (e) { try { root.addChild(gt); } catch (e) {} } }
 
     // Play Again button
     try {
@@ -106,7 +116,7 @@ export function showGameOver(params: ShowGameOverParams) {
         try { (btnBg as any).x = Math.round(sw / 2); (btnBg as any).y = Math.round(centerY); } catch (e) {}
       } catch (e) {}
       try { (btnBg as any).interactive = true; (btnBg as any).buttonMode = true; } catch (e) {}
-      try { app.stage.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) {} }
+      try { overlayContainer && overlayContainer.addChild(btnBg); } catch (e) { try { app.stage.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) {} } }
 
       const bts = new TextStyle({ fill: '#222222', fontSize: 28, fontFamily: 'Helvetica-Bold' });
       btnText = new Text({ text: 'Play Again', style: bts });
@@ -114,7 +124,7 @@ export function showGameOver(params: ShowGameOverParams) {
       btnText.y = btnY + btnH / 2;
       try { if (btnText.anchor && (btnText as any).anchor.set) (btnText as any).anchor.set(0.5, 0.5); } catch (e) {}
       btnText.zIndex = 100002;
-      try { app.stage.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) {} }
+      try { overlayContainer && overlayContainer.addChild(btnText); } catch (e) { try { app.stage.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) {} } }
 
       const cleanupAndReset = () => {
         try { if (_btnPulseTicker) { try { app.ticker.remove(_btnPulseTicker); } catch (e) {} _btnPulseTicker = null; } } catch (e) {}
@@ -126,6 +136,8 @@ export function showGameOver(params: ShowGameOverParams) {
 
       const onDown = () => {
         try {
+          // remove the overlay first so visuals are cleaned up immediately
+          try { cleanupAndReset(); } catch (e) {}
           if (typeof onPlayAgain === 'function') {
             try { onPlayAgain(); } catch (e) {}
           } else {

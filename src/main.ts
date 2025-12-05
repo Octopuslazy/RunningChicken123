@@ -12,7 +12,6 @@ import makeDanger5 from './patterns/Danger5';
 import Pickup from './prefabs/Pickup';
 import SoundController from './sound/SoundController';
 import showGameOver from './ui/gameOver';
-import showStartScreen from './ui/startScreen';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -159,15 +158,9 @@ async function init() {
 
   // attempt to load a background image (optional)
   // Assets are located in `Assets/_arts/` in this project
-  const bgTex = await loadTexture('/Assets/_arts/back.png');
-  if (bgTex) {
-    const sprite = new Sprite(bgTex as any);
-    sprite.width = WIDTH;
-    sprite.height = HEIGHT;
-    sprite.x = 0;
-    sprite.y = 0;
-    world.addChildAt(sprite, 0);
-  }
+  // Background image `back.png` was removed to avoid a large arrow overlay
+  // that covered the scene. If you want a subtle background image later,
+  // load it and add it with proper scaling/positioning here.
 
   const style = new TextStyle({
     fill: '#ffffff',
@@ -175,9 +168,39 @@ async function init() {
     fontFamily: 'Helvetica-Bold'
   });
   const label = new Text({ text: 'Running Chicken - Pixi v8', style: style });
-  label.x = 20;
+  label.x = 140;
   label.y = 20;
   root.addChild(label);
+
+  // Sound toggle button (top-left)
+  try {
+    let soundEnabled = false;
+    const soundToggle = new Container();
+    const btnW = 120; const btnH = 36;
+    const btn = new Graphics();
+    try { btn.clear(); btn.beginFill(0x000000, 0.45); btn.drawRoundedRect(0, 0, btnW, btnH, 6); btn.endFill(); } catch (e) {}
+    const lblStyle = new TextStyle({ fill: '#ffffff', fontSize: 16, fontFamily: 'Helvetica-Bold' });
+    const lbl = new Text({ text: 'Sound: Off', style: lblStyle });
+    lbl.x = 10; lbl.y = 6;
+    soundToggle.addChild(btn);
+    soundToggle.addChild(lbl);
+    soundToggle.x = 8; soundToggle.y = 8;
+    soundToggle.interactive = true;
+    (soundToggle as any).buttonMode = true;
+    soundToggle.on && soundToggle.on('pointerdown', () => {
+      try {
+        if (soundEnabled) {
+          try { SoundController.stopBackground(); } catch (e) {}
+          soundEnabled = false; lbl.text = 'Sound: Off';
+        } else {
+          try { SoundController.playBackgroundForced(300); } catch (e) { try { SoundController.playBackground(); } catch (e) {} }
+          soundEnabled = true; lbl.text = 'Sound: On';
+          try { backgroundStarted = true; } catch (e) {}
+        }
+      } catch (e) {}
+    });
+    try { root.addChild(soundToggle); } catch (e) { app.stage.addChild(soundToggle); }
+  } catch (e) {}
 
   // Spine loading/attachment is handled by `SpinePlayer` (uses
   // `@esotericsoftware/spine-pixi-v8`). The old dynamic runtime-detection
@@ -285,29 +308,37 @@ async function init() {
   // deferred until the player presses Play on the start screen. See
   // `startGame()` defined below.
   let gameplay: any = null;
+  // track whether background audio has been started for this page session
+  let backgroundStarted = false;
 
   // spawn a sequence of ground patterns (~20) so the scene is filled
   // Pickup state: declared here so ticker and spawn logic both see it
   const pickups: any[] = [];
+  // track pattern containers we spawn so we can remove them when restarting
+  const spawnedPatternContainers: any[] = [];
   let score = 0;
   let prevScore = 0;
+  // Track distance-based scoring thresholds (every 100px -> +15 points)
+  let lastDistanceThreshold = 0;
+  // Reward popup / playable-ads settings
+  const REWARD_URL = 'https://leapstud.io/'; // <-- change to the destination you want
+  const REWARD_THRESHOLD = 1500; // score required to show reward popup
+  let rewardShown = false;
+  let rewardActive = false;
+  // if true, the game is permanently stopped after reward popup
+  let rewardPermanentStop = false;
+  // whether the user already clicked Get Reward
+  let rewardClaimed = false;
   // power-up / invulnerability state
   let playerInvincible = false;
   let powerTimeout: ReturnType<typeof setTimeout> | null = null;
   let powerBlinkInterval: ReturnType<typeof setInterval> | null = null;
-  let powerScaleTickerActive = false;
-  let powerScaleStart = 0;
-  let powerScaleDuration = 0;
-  let powerScaleFrom = 1;
-  let powerScaleTo = 1;
-  // Keep a persistent record of the player's original visual scale so
-  // we can restore exactly that value when the power-up ends (instead
-  // of assuming scale `1`). This is updated when a power-up activates.
-  let playerOriginalScale = 1.3;
-  const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 28, fontFamily: 'Helvetica-Bold' });
+  // scale animation removed - not needed
+  const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 56, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' });
   const scoreText = new Text({ text: 'Score: 0', style: scoreStyle });
-  scoreText.x = WIDTH - 220;
-  scoreText.y = 0;
+  // larger score display in top-right
+  scoreText.x = WIDTH - 320;
+  scoreText.y = 8;
   root.addChild(scoreText);
 
   // throttle hit sound so rapid multiple collision checks don't spam audio
@@ -669,7 +700,15 @@ async function init() {
       // initialize sound controller and allow resume on gesture
       try { SoundController.init('/Assets/Sounds/'); SoundController.resumeOnUserGesture(); } catch (e) {}
       // try to start background audio (may be blocked until user gesture)
-      try { SoundController.playBackground(); } catch (e) {}
+      // Attempt a forced (muted) autoplay on first load to increase chance
+      // browsers accept autoplay when muted. Keep the user-gesture resume
+      // fallback in case this still fails.
+      try {
+        if (!backgroundStarted) {
+          try { SoundController.playBackgroundForced(300); } catch (e) { /* fallback to normal play */ try { SoundController.playBackground(); } catch (e) {} }
+          backgroundStarted = true;
+        }
+      } catch (e) {}
 
       // create gameplay and handler now that assets are ready
       try {
@@ -735,6 +774,7 @@ async function init() {
 
             const p = handler.addPattern(factoryToUse, cursorX);
             patterns.push(p);
+            try { if (p && p.container) spawnedPatternContainers.push(p.container); } catch (e) {}
 
             // Spawn pickups (same logic as before)
             try {
@@ -837,10 +877,10 @@ async function init() {
           score += 1; 
           scoreText.text = `Score: ${score}`; 
         } catch (e) {}
-        // check threshold crossing: every 10 points grant invulnerability
+        // check threshold crossing: every 1000 points grant invulnerability
         try {
-          const prevTier = Math.floor((prevScore || 0) / 10);
-          const newTier = Math.floor(score / 10);
+          const prevTier = Math.floor((prevScore || 0) / 1000);
+          const newTier = Math.floor(score / 1000);
           if (newTier > prevTier) {
             try { activatePowerUp(); } catch (e) {}
           }
@@ -853,7 +893,7 @@ async function init() {
   // current root scale (used to keep character 1:1 on screen)
   let currentScale = 1;
   // player moves slightly faster than camera to allow overtaking obstacles
-  const PLAYER_SPEED_FACTOR = 1.05;
+  const PLAYER_SPEED_FACTOR = 1.015;
 
   app.ticker.add(() => {
     const deltaSec = (app.ticker as any).deltaMS / 1000;
@@ -1039,7 +1079,7 @@ async function init() {
                   try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                   try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                   try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                  try { tryPlayHitSound(); } catch (e) {}
+                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
                   playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
                   return;
                 }
@@ -1057,7 +1097,7 @@ async function init() {
                   try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                   try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                   try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                  try { tryPlayHitSound(); } catch (e) {}
+                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
                   playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
                   return;
                 }
@@ -1079,7 +1119,7 @@ async function init() {
             try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
             try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
             try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-            try { tryPlayHitSound(); } catch (e) {}
+            try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
             playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
           }
         } catch (e) {}
@@ -1089,28 +1129,7 @@ async function init() {
 
     // Animation policy: RUN only when touching ground colliders, pause when jumping
     try {
-      // power-up scale animation update (if active)
-      if (powerScaleTickerActive && player && player.sprite) {
-        try {
-          const now = performance.now();
-          const t = Math.min(1, (now - powerScaleStart) / powerScaleDuration);
-          const s = powerScaleFrom + (powerScaleTo - powerScaleFrom) * t;
-          try {
-            if (spinePlayerInstance && typeof (spinePlayerInstance as any).setScale === 'function') {
-              try { (spinePlayerInstance as any).setScale(s); } catch (e) {}
-              try { if (spinePlayerInstance.view && spinePlayerInstance.view.scale) spinePlayerInstance.view.scale.set(s); } catch (e) {}
-              try { if ((spinePlayerInstance as any).spine) { (spinePlayerInstance as any).spine.scale = s; if ((spinePlayerInstance as any).spine.skeleton) { (spinePlayerInstance as any).spine.skeleton.scaleX = s; (spinePlayerInstance as any).spine.skeleton.scaleY = s; } } } catch (e) {}
-            } else if (player && player.sprite && player.sprite.scale) {
-              player.sprite.scale.x = s; player.sprite.scale.y = s;
-            } else if ((player as any).setScale) {
-              try { (player as any).setScale(s); } catch (e) {}
-            }
-          } catch (e) {}
-          if (t >= 1) {
-            powerScaleTickerActive = false;
-          }
-        } catch (e) {}
-      }
+      // power-up scale animation removed (no per-frame scale updates)
       if (spinePlayerInstance) {
         let shouldShowRun = false;
         
@@ -1207,6 +1226,123 @@ async function init() {
     // Update label to show camera speed and distance
     label.text = `Speed(cam): ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)}`;
 
+    // Distance-based scoring: award 15 points per 100px traveled.
+    try {
+      const newThreshold = Math.floor(scroll / 100);
+      if (newThreshold > lastDistanceThreshold) {
+        const gainedUnits = newThreshold - lastDistanceThreshold;
+        try { prevScore = score; } catch (e) {}
+        score += gainedUnits * 15;
+        try { scoreText.text = `Score: ${score}`; } catch (e) {}
+        lastDistanceThreshold = newThreshold;
+        // trigger power-up if we crossed a 1000-point tier
+        try {
+          const prevTier = Math.floor((prevScore || 0) / 1000);
+          const newTier = Math.floor(score / 1000);
+          if (newTier > prevTier) {
+            try { activatePowerUp(); } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+
+    // Show reward popup when threshold reached (single-shot)
+    try {
+      if (!rewardShown && typeof score === 'number' && score >= REWARD_THRESHOLD) {
+        rewardShown = true;
+        rewardActive = true;
+        rewardPermanentStop = true;
+        try { controlsEnabled = false; } catch (e) {}
+        try { app.ticker && app.ticker.stop && app.ticker.stop(); } catch (e) {}
+        try {
+          // build overlay
+          const overlay = new Container();
+          overlay.zIndex = 100000;
+          overlay.interactive = true;
+
+          const overlayBg = new Graphics();
+          try { overlayBg.clear(); overlayBg.beginFill(0x000000, 0.6); overlayBg.drawRect(0, 0, WIDTH, HEIGHT); overlayBg.endFill(); } catch (e) {}
+          overlay.addChild(overlayBg);
+
+          const boxW = Math.min(720, WIDTH - 160);
+          const boxH = 240;
+          const box = new Graphics();
+          try { box.clear(); box.beginFill(0xffffff, 1); box.drawRoundedRect((WIDTH - boxW) / 2, (HEIGHT - boxH) / 2, boxW, boxH, 12); box.endFill(); } catch (e) {}
+          overlay.addChild(box);
+
+          const titleStyle = new TextStyle({ fill: '#000000', fontSize: 28, fontFamily: 'Helvetica-Bold' });
+          const bodyStyle = new TextStyle({ fill: '#333333', fontSize: 18, fontFamily: 'Helvetica' });
+          const btnStyle = new TextStyle({ fill: '#ffffff', fontSize: 18, fontFamily: 'Helvetica-Bold' });
+
+          const title = new Text({ text: 'You received a special reward!', style: titleStyle });
+          title.x = Math.round((WIDTH - title.width) / 2);
+          title.y = Math.round((HEIGHT - boxH) / 2) + 18;
+          overlay.addChild(title);
+
+          const body = new Text({ text: 'Congrats — you unlocked a special prize. Claim it now.', style: bodyStyle });
+          body.x = Math.round((WIDTH - body.width) / 2);
+          body.y = title.y + 48;
+          overlay.addChild(body);
+
+          // Get Reward button
+          const btnW2 = 220; const btnH2 = 48;
+          const btnX = Math.round((WIDTH - btnW2) / 2);
+          const btnY = Math.round((HEIGHT + boxH) / 2) - btnH2 - 18;
+          const btnG = new Graphics();
+          try { btnG.clear(); btnG.beginFill(0xd9534f, 1); btnG.drawRoundedRect(btnX, btnY, btnW2, btnH2, 8); btnG.endFill(); } catch (e) {}
+          btnG.interactive = true;
+          (btnG as any).buttonMode = true;
+          overlay.addChild(btnG);
+
+          const btnText = new Text({ text: 'Get Reward', style: btnStyle });
+          btnText.x = btnX + Math.round((btnW2 - btnText.width) / 2);
+          btnText.y = btnY + Math.round((btnH2 - btnText.height) / 2);
+          overlay.addChild(btnText);
+
+          // Close / Later small button
+          const closeW = 120; const closeH = 34;
+          const closeX = btnX + btnW2 + 12;
+          const closeY = btnY + Math.round((btnH2 - closeH) / 2);
+          const closeG = new Graphics();
+          try { closeG.clear(); closeG.beginFill(0x888888, 1); closeG.drawRoundedRect(closeX, closeY, closeW, closeH, 8); closeG.endFill(); } catch (e) {}
+          closeG.interactive = true;
+          const closeText = new Text({ text: 'Later', style: btnStyle });
+          closeText.x = closeX + Math.round((closeW - closeText.width) / 2);
+          closeText.y = closeY + Math.round((closeH - closeText.height) / 2);
+          overlay.addChild(closeG);
+          overlay.addChild(closeText);
+          
+
+          // Add to root (overlay should be on top)
+          // ensure overlay is added to the top-level stage so it truly covers screen
+          try { app.stage.addChild(overlay); } catch (e) { try { root.addChild(overlay); } catch (e) {} }
+
+          // handlers
+          btnG.on && btnG.on('pointerdown', () => {
+            try {
+              // open reward link in a new tab (keep overlay visible so player can later resume)
+              try { window.open(REWARD_URL, '_blank'); } catch (e) { try { window.location.href = REWARD_URL; } catch (e) {} }
+            } catch (e) {}
+            // do NOT remove the overlay here; leave it so the player can press 'Later' to resume
+            // mark reward claimed; keep game stopped until the player explicitly resumes via 'Later'
+            try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
+          });
+
+          closeG.on && closeG.on('pointerdown', () => {
+            try { if (overlay.parent) overlay.parent.removeChild(overlay); } catch (e) {}
+            // Always allow the player to resume when pressing Later, even if they previously claimed the reward.
+            try {
+              rewardActive = false;
+              rewardPermanentStop = false;
+              controlsEnabled = true;
+              try { app.ticker && app.ticker.start && app.ticker.start(); } catch (e) {}
+            } catch (e) {}
+          });
+
+        } catch (e) {}
+      }
+    } catch (e) {}
+
     if (debugEnabled) {
       const screenX = player.sprite.x + world.x;
       debug.text = `worldX:${Math.round(player.worldX)} scroll:${Math.round(scroll)} screenX:${Math.round(screenX)}`;
@@ -1230,16 +1366,15 @@ async function init() {
           origScale = (player.sprite && player.sprite.scale) ? (player.sprite.scale.x || 1) : 1;
         }
       } catch (e) { origScale = 1; }
-      // persist original scale for later restore (do not assume `1`)
-      playerOriginalScale = origScale;
-      const targetScale = origScale * 1.8;
-
-      // animate to target over 600ms
-      powerScaleFrom = origScale;
-      powerScaleTo = targetScale;
-      powerScaleStart = performance.now();
-      powerScaleDuration = 600;
-      powerScaleTickerActive = true;
+      // persist original scale for later restore (do not assume `1`) - scale restore not needed
+      // NOTE: scale-up animation intentionally disabled for now.
+      // const targetScale = origScale * 1.8;
+      // animate to target over 600ms (disabled)
+      // powerScaleFrom = origScale;
+      // powerScaleTo = targetScale;
+      // powerScaleStart = performance.now();
+      // powerScaleDuration = 600;
+      // powerScaleTickerActive = true;
 
       // ensure existing timeouts/intervals cleared
       if (powerTimeout) { clearTimeout(powerTimeout); powerTimeout = null; }
@@ -1267,21 +1402,11 @@ async function init() {
       // schedule end of power-up
       powerTimeout = setTimeout(() => {
         try {
-          // stop blinking
+          // stop blinking and restore visibility
           if (powerBlinkInterval) { clearInterval(powerBlinkInterval); powerBlinkInterval = null; }
           if (player && player.sprite) try { player.sprite.alpha = 1; } catch (e) {}
-          // animate back to original over 400ms
-          powerScaleFrom = (player.sprite && player.sprite.scale) ? (player.sprite.scale.x || targetScale) : targetScale;
-          // restore to the exact original scale recorded when the power-up
-          // began rather than assuming `1` or recomputing from current state.
-          powerScaleTo = playerOriginalScale;
-          powerScaleStart = performance.now();
-          powerScaleDuration = 400;
-          powerScaleTickerActive = true;
-          // clear invulnerability after revert animation completes
-          setTimeout(() => {
-            try { playerInvincible = false; } catch (e) {}
-          }, powerScaleDuration + 20);
+          // scale revert/animation disabled; simply clear invulnerability
+          try { playerInvincible = false; } catch (e) {}
         } catch (e) {}
       }, totalMs);
     } catch (e) {}
@@ -1293,6 +1418,47 @@ async function init() {
   let gameOverQueuedTimer: ReturnType<typeof setTimeout> | null = null;
   let gameOverQueuedReason: string | null = null;
   let collisionEffectPlaying = false;
+
+  // Restart the gameplay in-place without reloading the page.
+  // This clears pickups and spawned pattern containers, resets flags,
+  // and re-initializes gameplay by calling `startGame()`.
+  async function restartGame() {
+    try { SoundController.stopAll(); } catch (e) {}
+    try {
+      // clear pickups visuals
+      for (const it of pickups) {
+        try { if (it && it.parent) it.parent.removeChild(it); } catch (e) {}
+      }
+      pickups.length = 0;
+    } catch (e) {}
+
+    try {
+      // remove pattern containers we previously spawned
+      for (const c of spawnedPatternContainers) {
+        try { if (c && c.parent) c.parent.removeChild(c); } catch (e) {}
+      }
+      spawnedPatternContainers.length = 0;
+    } catch (e) {}
+
+    try {
+      // reset gameplay if present
+      try { if (gameplay && typeof (gameplay.reset) === 'function') gameplay.reset(); } catch (e) {}
+      gameplay = null;
+      // reset distance scoring tracker
+      try { lastDistanceThreshold = 0; } catch (e) {}
+    } catch (e) {}
+
+    try {
+      // reset world scroll/position
+      try { (world as any).x = 0; } catch (e) {}
+      // reset player state
+      try { player.worldX = PLAYER_X; player.vy = 0; playerDead = false; gameOver = false; controlsEnabled = true; prevScore = 0; score = 0; scoreText.text = `Score: ${score}`; } catch (e) {}
+      try { if (player && typeof (player.setScreenScale) === 'function') player.setScreenScale && player.setScreenScale(1); } catch (e) {}
+    } catch (e) {}
+
+    // start a fresh game instance
+    try { await startGame(); } catch (e) { console.warn('restartGame: startGame failed', e); }
+  }
 
   // Controls disabled until user starts the game from the start screen
   let controlsEnabled = false;
@@ -1339,6 +1505,8 @@ async function init() {
   // - options: { count, duration, stagger, startScale, endScale }
  
   function doGameOver(finalReason?: string, force = false) {
+    // If reward overlay is active or the reward stopped the game permanently, suppress Game Over
+    try { if (rewardActive || rewardPermanentStop) return; } catch (e) {}
     if (gameOver) return;
     // Protect against false positives: if the player is currently on a
     // registered pattern and appears grounded, suppress the Game Over.
@@ -1360,7 +1528,7 @@ async function init() {
     try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
 
     try {
-      showGameOver({ app, root, canvas, onPlayAgain: () => { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } });
+      showGameOver({ app, root, canvas, onPlayAgain: () => { try { restartGame(); } catch (e) { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } } });
     } catch (e) {}
   }
 
@@ -1442,14 +1610,9 @@ async function init() {
 
   updateScale();
 
-  // Show start screen and enable controls when the player presses Play
-  try {
-    showStartScreen && showStartScreen({ app, root, canvas, onStart: async () => {
-      try { await startGame(); } catch (e) { console.warn('startGame failed on start', e); }
-      try { controlsEnabled = true; } catch (e) {}
-      try { SoundController.playBackground(); } catch (e) {}
-    } });
-  } catch (e) {}
+  // Start the game immediately (no start screen). Enable controls and start background audio.
+  try { await startGame(); } catch (e) { console.warn('startGame failed at init', e); }
+  try { controlsEnabled = true; } catch (e) {}
 
   function onResize() {
     applyCanvasCssSize();

@@ -235,7 +235,9 @@ export class MapHandler {
     // subtle background hue change to keep previous visual behaviour
     const hue = (this.scroll * 0.02) % 360;
     const col = MapHandler.hslToHex(hue, 70, 55);
-    this.bg.clear().rect(0, 0, this.WIDTH, this.HEIGHT).fill({ color: col });
+    // removed full-screen colored rectangle so host/app background is preserved
+    // keep the bg Graphics cleared so no large overlay (the red block) is drawn
+    this.bg.clear();
 
     this.label.text = `Speed: ${Math.round(this.speed)} px/s  Distance: ${Math.floor(this.scroll)} px`;
 

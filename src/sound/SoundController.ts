@@ -7,6 +7,8 @@ class SoundController {
     pickup: null,
     hit: null
   };
+  private basePath = '/Assets/Sounds/';
+  private lastOneOff: HTMLAudioElement | null = null;
   private bgPlaying = false;
   private lastPlayed: Record<SoundKeys, number> = {
     bg: 0,
@@ -26,6 +28,7 @@ class SoundController {
 
   init(basePath = '/Assets/Sounds/') {
     try {
+      this.basePath = basePath || this.basePath;
       // create audio elements (do not autoplay without user interaction in some browsers)
       this.sounds.bg = new Audio(basePath + '13. option2. Game running.mp3');
       this.sounds.bg.loop = true;
@@ -90,6 +93,43 @@ class SoundController {
       this.sounds.bg.pause();
       this.sounds.bg.currentTime = 0;
       this.bgPlaying = false;
+    } catch (e) {}
+  }
+
+  // Stop/pause all managed audio elements (background + effect sources)
+  stopAll() {
+    try {
+      // stop background
+      try { if (this.sounds.bg) { this.sounds.bg.pause(); this.sounds.bg.currentTime = 0; } } catch (e) {}
+      // stop base effect sources (clones may still play; this stops originals)
+      try { if (this.sounds.jump) { this.sounds.jump.pause(); this.sounds.jump.currentTime = 0; } } catch (e) {}
+      try { if (this.sounds.pickup) { this.sounds.pickup.pause(); this.sounds.pickup.currentTime = 0; } } catch (e) {}
+      try { if (this.sounds.hit) { this.sounds.hit.pause(); this.sounds.hit.currentTime = 0; } } catch (e) {}
+      // stop any one-off audio previously started via stopAllAndPlay
+      try { if (this.lastOneOff) { this.lastOneOff.pause(); this.lastOneOff.currentTime = 0; this.lastOneOff = null; } } catch (e) {}
+      this.bgPlaying = false;
+    } catch (e) {}
+  }
+
+  // Stop all managed sounds and play a one-off track from the basePath.
+  // filename should be just the file name, e.g. 'nan.mp3'
+  stopAllAndPlay(filename: string) {
+    try {
+      this.stopAll();
+      if (!filename) return;
+      // create and remember the one-off audio so it can be stopped later
+      try {
+        if (this.lastOneOff) {
+          try { this.lastOneOff.pause(); this.lastOneOff.currentTime = 0; } catch (e) {}
+          this.lastOneOff = null;
+        }
+      } catch (e) {}
+      const src = new Audio(this.basePath + filename);
+      src.preload = 'auto';
+      src.volume = 0.9;
+      this.lastOneOff = src;
+      const p = src.play();
+      if (p && typeof (p as any).catch === 'function') (p as any).catch(() => {});
     } catch (e) {}
   }
 

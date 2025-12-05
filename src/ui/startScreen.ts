@@ -16,17 +16,21 @@ export function showStartScreen(params: ShowStartParams) {
   let pulseTicker: ((ticker?: any) => void) | null = null;
 
   try {
-    const sw = canvas.clientWidth || window.innerWidth;
-    const sh = canvas.clientHeight || window.innerHeight;
+    // use renderer/screen size so overlay matches game internal resolution
+    const sw = (app.screen && (app.screen as any).width) ? (app.screen as any).width : (app.renderer && (app.renderer as any).width) || canvas.clientWidth || window.innerWidth;
+    const sh = (app.screen && (app.screen as any).height) ? (app.screen as any).height : (app.renderer && (app.renderer as any).height) || canvas.clientHeight || window.innerHeight;
 
     container = new Container();
     container.zIndex = 90000;
+    try { app.stage.sortableChildren = true; } catch (e) {}
+    // ensure overlay sits at screen origin
+    try { container.x = 0; container.y = 0; } catch (e) {}
 
     // blocking background (dark gray, interactive to absorb clicks)
     const bg = new Graphics();
     try {
       if (typeof (bg as any).fill === 'function') {
-        try { (bg as any).fill(0x222222, 0.7); } catch (e) { try { (bg as any).fill({ color: 0x222222, alpha: 0.7 }); } catch (e) {} }
+        try { (bg as any).fill(0x222222, 1); } catch (e) { try { (bg as any).fill({ color: 0x222222, alpha: 0.7 }); } catch (e) {} }
       } else {
         (bg as any).beginFill && (bg as any).beginFill(0x222222, 0.7);
       }
