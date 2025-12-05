@@ -10,9 +10,20 @@ import makeDanger3 from './patterns/Danger3';
 import makeDanger4 from './patterns/Danger4';
 import makeDanger5 from './patterns/Danger5';
 import Pickup from './prefabs/Pickup';
+import SoundController from './sound/SoundController';
+import showGameOver from './ui/gameOver';
+import showStartScreen from './ui/startScreen';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
+
+// Toggle verbose runtime logging (set to `true` while debugging)
+const LOG_DEBUG = false;
+const L = {
+  log: (...args: any[]) => { if (LOG_DEBUG) console.log(...args); },
+  debug: (...args: any[]) => { if (LOG_DEBUG) console.debug(...args); },
+  info: (...args: any[]) => { if (LOG_DEBUG) console.info(...args); }
+};
 
 // Global character size factor (e.g. 0.6 = 60% of previous size)
 const CHARACTER_SCALE_FACTOR = 0.6;
@@ -161,7 +172,7 @@ async function init() {
   const style = new TextStyle({
     fill: '#ffffff',
     fontSize: 36,
-    fontFamily: 'Helvetica, Arial'
+    fontFamily: 'Helvetica-Bold'
   });
   const label = new Text({ text: 'Running Chicken - Pixi v8', style: style });
   label.x = 20;
@@ -180,15 +191,44 @@ async function init() {
   // Use `char.png` as the static character texture (no animation)
   const charTex = await loadTexture('/Assets/_arts/char.png');
     if (charTex) {
-    console.log('Using char.png for player texture');
+    L.log('Using char.png for player texture');
     player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
   } else {
-    console.log('char.png not found; falling back to graphics');
+    L.log('char.png not found; falling back to graphics');
     player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
   }
 
   player.worldX = PLAYER_X;
   world.addChild(player.sprite);
+  // Wrap player's jump method so we play sound effect when jumping
+  try {
+    if (player && typeof player.jump === 'function') {
+      const _origJump = player.jump.bind(player);
+      player.jump = function(...args: any[]) {
+        try {
+          const did = _origJump(...args);
+          if (did) {
+            try { SoundController.playJump(); } catch (e) {}
+          }
+          return did;
+        } catch (e) { return _origJump(...args); }
+      };
+    }
+  } catch (e) {}
+  try {
+    if (player && typeof (player as any).startJumpHold === 'function') {
+      const _origStartHold = (player as any).startJumpHold.bind(player);
+      (player as any).startJumpHold = function(...args: any[]) {
+        try {
+          const did = _origStartHold(...args);
+          if (did) {
+            try { SoundController.playJump(); } catch (e) {}
+          }
+          return did;
+        } catch (e) { return _origStartHold(...args); }
+      };
+    }
+  } catch (e) {}
   try {
     // Ensure the base sprite's pointerdown respects `controlsEnabled` (override any listener from createCharacter)
     try { (player.sprite as any).off && (player.sprite as any).off('pointerdown'); } catch (e) {}
@@ -198,7 +238,7 @@ async function init() {
     // ensure visible and log initial state for debugging
     (player.sprite as any).visible = true;
     (player.sprite as any).alpha = 1;
-    console.log('Player spawned:', { worldX: player.worldX, x: player.sprite.x, y: player.sprite.y });
+    L.log('Player spawned:', { worldX: player.worldX, x: player.sprite.x, y: player.sprite.y });
   } catch (e) {}
 
   // Load Spine visual for the player (optional). If successful, replace the
@@ -235,29 +275,52 @@ async function init() {
       });
       world.addChild(player.sprite);
       spinePlayerInstance = sp;
-      console.log('SpinePlayer loaded — animations:', avail);
+      L.log('SpinePlayer loaded — animations:', avail);
     } catch (e) {
       console.warn('SpinePlayer reload failed:', e);
     }
   }
 
-  // initial load
-  reloadSpineAnimations();
-  
-
-  // increase initial camera/player speed slightly so gameplay feels faster
-  const gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
-  try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
+  // NOTE: heavy loading (Spine, sounds, gameplay, pattern spawning) is
+  // deferred until the player presses Play on the start screen. See
+  // `startGame()` defined below.
+  let gameplay: any = null;
 
   // spawn a sequence of ground patterns (~20) so the scene is filled
   // Pickup state: declared here so ticker and spawn logic both see it
   const pickups: any[] = [];
   let score = 0;
-  const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 28, fontFamily: 'Helvetica, Arial' });
+  let prevScore = 0;
+  // power-up / invulnerability state
+  let playerInvincible = false;
+  let powerTimeout: ReturnType<typeof setTimeout> | null = null;
+  let powerBlinkInterval: ReturnType<typeof setInterval> | null = null;
+  let powerScaleTickerActive = false;
+  let powerScaleStart = 0;
+  let powerScaleDuration = 0;
+  let powerScaleFrom = 1;
+  let powerScaleTo = 1;
+  // Keep a persistent record of the player's original visual scale so
+  // we can restore exactly that value when the power-up ends (instead
+  // of assuming scale `1`). This is updated when a power-up activates.
+  let playerOriginalScale = 1.3;
+  const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 28, fontFamily: 'Helvetica-Bold' });
   const scoreText = new Text({ text: 'Score: 0', style: scoreStyle });
   scoreText.x = WIDTH - 220;
   scoreText.y = 0;
   root.addChild(scoreText);
+
+  // throttle hit sound so rapid multiple collision checks don't spam audio
+  let _lastHitSoundAt = 0;
+  function tryPlayHitSound() {
+    try {
+      const now = Date.now();
+      const MIN_MS = 800; // match SoundController cooldown for safety
+      if (now - _lastHitSoundAt < MIN_MS) return;
+      _lastHitSoundAt = now;
+      try { SoundController.playHit(); } catch (e) {}
+    } catch (e) {}
+  }
 
   try {
     // preload ground textures so Sprite/Texture are ready
@@ -368,6 +431,10 @@ async function init() {
       // preload decorative store so patterns can reference it without a cache warning
       await loadTexture('/Assets/_arts/bg_1_standee1.png');
     } catch (e) {}
+    try {
+      // preload decorative store so patterns can reference it without a cache warning
+      await loadTexture('/Assets/_arts/gameover.jpg');
+    } catch (e) {}
 
     const handler = (gameplay as any)._handler;
     // enable hitbox debug by default so colliders are visible for verification
@@ -383,9 +450,9 @@ async function init() {
     // bind 'H' key to toggle obstacle hitbox debug visibility
     window.addEventListener('keydown', (ev) => {
       if (ev.code === 'KeyH') {
-        try {
+        try { 
           const newState = handler.toggleHitboxes();
-          console.log('Pattern hitbox debug:', newState);
+          L.log('Pattern hitbox debug:', newState);
         } catch (e) {}
       }
     });
@@ -534,7 +601,7 @@ async function init() {
         // make sure player is on top of world children so it's visible
         try { world.removeChild(player.sprite); } catch (e) {}
         world.addChild(player.sprite);
-        console.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
+        L.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
       } catch (e) {}
 
       // (Moving plane spawn removed) Planes should come from patterns (e.g. Danger5)
@@ -592,6 +659,142 @@ async function init() {
     try { if ((player as any).endJumpHold) (player as any).endJumpHold(); } catch (err) {}
   });
 
+  // Start the actual game (loads Spine, sounds, creates gameplay, and
+  // spawns initial patterns). This is called when the player presses
+  // Play on the start screen so we don't load heavy assets until needed.
+  async function startGame() {
+    try {
+      // load Spine visuals and attach to player
+      try { await reloadSpineAnimations(); } catch (e) { console.warn('reloadSpineAnimations failed', e); }
+      // initialize sound controller and allow resume on gesture
+      try { SoundController.init('/Assets/Sounds/'); SoundController.resumeOnUserGesture(); } catch (e) {}
+      // try to start background audio (may be blocked until user gesture)
+      try { SoundController.playBackground(); } catch (e) {}
+
+      // create gameplay and handler now that assets are ready
+      try {
+        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
+        try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
+      } catch (e) { console.warn('createGameplay failed', e); }
+
+      // spawn initial patterns (moved from inline init to here)
+      try {
+        const handler = (gameplay as any)._handler;
+        // enable hitbox debug by default so colliders are visible for verification
+        try { handler.toggleHitboxes(); } catch (e) {}
+
+        // Create and place multiple ground-only patterns sequentially
+        try {
+          const patterns: any[] = [];
+          const NUM_PATTERNS = 200;
+          const PIT_WIDTH = 300; // pit between every two patterns
+
+          // --- Spawn configuration (tweak these to change randomness/weights) ---
+          const PATTERN_LENGTH = 750; // default visual length for most patterns
+          const PROB_USE_DANGER = 0.70; // base chance to use a Danger pattern instead of plain ground
+          const PROB_USE_DANGER_AFTER = 0.85; // increased chance after DISTANCE_NORMAL_START (reduces easy)
+          const DANGER_WEIGHTS = { d1: 0.3, d2: 0.2, d3: 0.3, d4: 0.2, d5: 0.3 };
+          const DANGER3_LENGTH = 300;
+          const DANGER4_LENGTH = 1200; // explicit length to use for Danger4
+          const DISTANCE_NORMAL_START = 4500; // only allow NORMAL difficulty patterns after this world distance
+
+          let cursorX = 0;
+          for (let i = 0; i < NUM_PATTERNS; i++) {
+            const length = PATTERN_LENGTH;
+            const probUseDangerNow = (cursorX >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
+            let factory: any = null;
+            if (Math.random() < probUseDangerNow) {
+              const r = Math.random();
+              const includeD5 = cursorX >= DISTANCE_NORMAL_START;
+              const total = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4 + (includeD5 ? DANGER_WEIGHTS.d5 : 0)) || 1;
+              const t1 = DANGER_WEIGHTS.d1 / total;
+              const t2 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2) / total;
+              const t3 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3) / total;
+              const t4 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4) / total;
+              if (r < t1) factory = makeDanger1({ leftEnd: true, rightEnd: true, length });
+              else if (r < t2) factory = makeDanger2({ leftEnd: true, rightEnd: true, length });
+              else if (r < t3) factory = makeDanger4({ leftEnd: true, rightEnd: true, length: DANGER4_LENGTH });
+              else if (r < t4) factory = makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH });
+              else factory = makeDanger5({ leftEnd: true, rightEnd: true, length });
+            } else {
+              factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
+            }
+
+            const chosenFactory = factory;
+            const factoryToUse = (startX2: number) => {
+              try {
+                const pd = chosenFactory(startX2);
+                if (pd && pd.difficulty === 'MEDIUM' && cursorX < DISTANCE_NORMAL_START) {
+                  return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
+                }
+                return pd;
+              } catch (e) {
+                return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
+              }
+            };
+
+            const p = handler.addPattern(factoryToUse, cursorX);
+            patterns.push(p);
+
+            // Spawn pickups (same logic as before)
+            try {
+              const SPAWN_CHANCE = 0.25;
+              if (i > 0 && Math.random() < SPAWN_CHANCE) {
+                const ITEM_COUNT = 3 + Math.floor(Math.random() * 4);
+                const itemType = Math.floor(Math.random() * 7);
+                const texPath = `/Assets/_arts/obj_${itemType}.png`;
+                const tex = Texture.from(texPath);
+                const visualLengthLocal = (() => { try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; } })();
+                if (visualLengthLocal > 120) {
+                  const padding = 40;
+                  const baseXLocal = padding + Math.floor(Math.random() * Math.max(1, Math.floor(visualLengthLocal - padding * 2)));
+                  const spacing = Math.min(72, Math.max(40, Math.floor(visualLengthLocal / (ITEM_COUNT + 1))));
+                  const heightAbove = 300 + Math.floor(Math.random() * 301);
+                  for (let ii = 0; ii < ITEM_COUNT; ii++) {
+                    try {
+                      const prefab = new Pickup(itemType, tex as any);
+                      prefab.x = baseXLocal + ii * spacing;
+                      prefab.y = -heightAbove;
+                      prefab.zIndex = 1200;
+                      p.container.addChild(prefab);
+                      pickups.push(prefab);
+                    } catch (e) {}
+                  }
+                }
+              }
+            } catch (e) {}
+
+            let visualLength = p && p.container ? (() => { try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; } })() : (p ? p.length : length);
+            if (i < NUM_PATTERNS - 1) {
+              try { (gameplay as any).getPits().push({ x: cursorX + visualLength, width: PIT_WIDTH }); } catch (e) {}
+            }
+            cursorX += visualLength;
+            if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
+          }
+
+          // position player on first pattern
+          try {
+            const p1 = patterns.length > 0 ? patterns[0] : null;
+            if (p1 && p1.container && player) {
+              const startX1 = 0;
+              const visualLength = p1 && p1.container ? (() => { try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; } })() : (p1 ? p1.length : 700);
+              const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
+              const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
+              player.worldX = targetWorldX;
+              try { const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y; player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT; } catch (e) { player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT; }
+              player.vy = 0; player.onGround = true;
+              try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+              try { player.sprite.y = player.y; } catch (e) {}
+            }
+          } catch (e) {}
+          try { world.removeChild(player.sprite); } catch (e) {}
+          try { world.addChild(player.sprite); } catch (e) {}
+        } catch (e) { console.warn('Failed to spawn repeated patterns', e); }
+      } catch (e) { console.warn('Pattern spawn failed', e); }
+
+    } catch (e) { console.warn('startGame failed', e); }
+  }
+
   // Debug overlay (toggle with 'D') to inspect world/player positions
   const debugStyle = new TextStyle({ fill: '#ffff00', fontSize: 18 });
   const debug = new Text({ text: 'DEBUG', style: debugStyle });
@@ -616,9 +819,36 @@ async function init() {
     if (e.code === 'KeyP') {
       pickupDebug = !pickupDebug;
       pickupDebugContainer.visible = pickupDebug;
-      console.log('Pickup debug:', pickupDebug);
+      L.log('Pickup debug:', pickupDebug);
     }
   });
+
+  // Listen for pickup prefab events and handle score/effects centrally
+  try {
+    window.addEventListener('pickup', (ev: any) => {
+      try {
+        const d = ev && ev.detail ? ev.detail : {};
+        const x = typeof d.x === 'number' ? d.x : (d && d.pos && d.pos.x) || 0;
+        const y = typeof d.y === 'number' ? d.y : (d && d.pos && d.pos.y) || 0;
+        try { playCollisionEffectAt(x, y); } catch (e) {}
+        try { SoundController.playPickup(); } catch (e) {}
+        try { 
+          prevScore = score;
+          score += 1; 
+          scoreText.text = `Score: ${score}`; 
+        } catch (e) {}
+        // check threshold crossing: every 10 points grant invulnerability
+        try {
+          const prevTier = Math.floor((prevScore || 0) / 10);
+          const newTier = Math.floor(score / 10);
+          if (newTier > prevTier) {
+            try { activatePowerUp(); } catch (e) {}
+          }
+        } catch (e) {}
+        L.info && L.info('pickup event handled (score updated)', d);
+      } catch (e) {}
+    });
+  } catch (e) {}
 
   // current root scale (used to keep character 1:1 on screen)
   let currentScale = 1;
@@ -627,6 +857,9 @@ async function init() {
 
   app.ticker.add(() => {
     const deltaSec = (app.ticker as any).deltaMS / 1000;
+
+    // If gameplay hasn't been initialized yet (waiting for Play), skip update
+    if (!gameplay) return;
 
     // Update gameplay (camera scroll) first
     const { scroll, speed } = gameplay.update(deltaSec);
@@ -747,7 +980,7 @@ async function init() {
               if (intersects(itemBounds, playerBounds)) {
                 collected = true;
               } else {
-                if (pickupDebug) console.debug && console.debug('PICKUP: miss bounds', { i, type: it.type, itemBounds, playerBounds });
+                if (pickupDebug) L.debug && L.debug('PICKUP: miss bounds', { i, type: it.type, itemBounds, playerBounds });
               }
             } catch (e) {
               // final fallback: radial check
@@ -760,12 +993,9 @@ async function init() {
 
               if (collected) {
                 try {
-                  console.debug && console.debug('PICKUP: hit (collected)', { i, type: it.type, itemGlobalX, itemGlobalY });
+                  L.debug && L.debug('PICKUP: hit (collected)', { i, type: it.type, itemGlobalX, itemGlobalY });
                   try { if (typeof it.collect === 'function') { it.collect(); } else { if (it.parent) it.parent.removeChild(it); } } catch (e) {}
                   pickups.splice(i, 1);
-                  score += 1;
-                  try { scoreText.text = `Score: ${score}`; } catch (e) {}
-                  try { playCollisionEffectAt(itemGlobalX, itemGlobalY); } catch (e) {}
                 } catch (e) {}
               }
           } catch (e) {
@@ -801,12 +1031,18 @@ async function init() {
             // If this obstacle is not ground, still play collision effect and then Game Over
             try {
               if (!(o as any).isGround) {
-                // play death animation, freeze controls/movement, then effect -> GameOver
-                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                return;
+                // if player is invincible, ignore obstacle collisions
+                if (playerInvincible) {
+                  // do nothing
+                } else {
+                  // play death animation, freeze controls/movement, then effect -> GameOver
+                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                  try { tryPlayHitSound(); } catch (e) {}
+                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                  return;
+                }
               }
             } catch (e) {}
           } else if (currBottom > obstacleTop) {
@@ -815,11 +1051,16 @@ async function init() {
             player.sprite.x = player.worldX;
             try {
               if (!(o as any).isGround) {
-                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                return;
+                if (playerInvincible) {
+                  // ignore
+                } else {
+                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                  try { tryPlayHitSound(); } catch (e) {}
+                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                  return;
+                }
               }
             } catch (e) {}
           }
@@ -831,12 +1072,16 @@ async function init() {
     try {
       const blocking = (gameplay as any).getBlockingObstacle ? (gameplay as any).getBlockingObstacle(player.worldX, player.y, playerRadius) : null;
       if (blocking && !(blocking as any).isGround) {
-        try { console.debug && console.debug('Player collided with obstacle', blocking); } catch (e) {}
+        try { L.debug && L.debug('Player collided with obstacle', blocking); } catch (e) {}
         try {
-          try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-          playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+          // ignore collision if invincible
+          if (!playerInvincible) {
+            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+            try { tryPlayHitSound(); } catch (e) {}
+            playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+          }
         } catch (e) {}
         return;
       }
@@ -844,6 +1089,28 @@ async function init() {
 
     // Animation policy: RUN only when touching ground colliders, pause when jumping
     try {
+      // power-up scale animation update (if active)
+      if (powerScaleTickerActive && player && player.sprite) {
+        try {
+          const now = performance.now();
+          const t = Math.min(1, (now - powerScaleStart) / powerScaleDuration);
+          const s = powerScaleFrom + (powerScaleTo - powerScaleFrom) * t;
+          try {
+            if (spinePlayerInstance && typeof (spinePlayerInstance as any).setScale === 'function') {
+              try { (spinePlayerInstance as any).setScale(s); } catch (e) {}
+              try { if (spinePlayerInstance.view && spinePlayerInstance.view.scale) spinePlayerInstance.view.scale.set(s); } catch (e) {}
+              try { if ((spinePlayerInstance as any).spine) { (spinePlayerInstance as any).spine.scale = s; if ((spinePlayerInstance as any).spine.skeleton) { (spinePlayerInstance as any).spine.skeleton.scaleX = s; (spinePlayerInstance as any).spine.skeleton.scaleY = s; } } } catch (e) {}
+            } else if (player && player.sprite && player.sprite.scale) {
+              player.sprite.scale.x = s; player.sprite.scale.y = s;
+            } else if ((player as any).setScale) {
+              try { (player as any).setScale(s); } catch (e) {}
+            }
+          } catch (e) {}
+          if (t >= 1) {
+            powerScaleTickerActive = false;
+          }
+        } catch (e) {}
+      }
       if (spinePlayerInstance) {
         let shouldShowRun = false;
         
@@ -891,7 +1158,7 @@ async function init() {
                 // resume even if the animation name is already 'run' but the
                 // track was paused (timeScale === 0)
                 if (trackPaused) {
-                  try { console.debug && console.debug('LAND: resuming run animation'); } catch (e) {}
+                  try { L.debug && L.debug('LAND: resuming run animation'); } catch (e) {}
                 }
                 try { spinePlayerInstance.resumeTrack && spinePlayerInstance.resumeTrack(0); } catch (e) {}
               } catch (e) {}
@@ -948,6 +1215,78 @@ async function init() {
     // ground visuals removed; no road mask needed — patterns will control ground art.
   });
 
+  // Activate the power-up: scale player by 15% slowly, make invulnerable for 5s,
+  // blink for the last 1s, then revert scale.
+  function activatePowerUp() {
+    try {
+      if (!player || playerInvincible) return;
+      playerInvincible = true;
+      // record original scale
+      let origScale = 1;
+      try {
+        if (spinePlayerInstance && typeof (spinePlayerInstance as any).setScale === 'function' && spinePlayerInstance.view && spinePlayerInstance.view.scale) {
+          origScale = spinePlayerInstance.view.scale.x || 1;
+        } else {
+          origScale = (player.sprite && player.sprite.scale) ? (player.sprite.scale.x || 1) : 1;
+        }
+      } catch (e) { origScale = 1; }
+      // persist original scale for later restore (do not assume `1`)
+      playerOriginalScale = origScale;
+      const targetScale = origScale * 1.8;
+
+      // animate to target over 600ms
+      powerScaleFrom = origScale;
+      powerScaleTo = targetScale;
+      powerScaleStart = performance.now();
+      powerScaleDuration = 600;
+      powerScaleTickerActive = true;
+
+      // ensure existing timeouts/intervals cleared
+      if (powerTimeout) { clearTimeout(powerTimeout); powerTimeout = null; }
+      if (powerBlinkInterval) { clearInterval(powerBlinkInterval); powerBlinkInterval = null; }
+
+      // after 4s start blinking for 1s, then revert
+      const totalMs = 10000;
+      const blinkStart = totalMs - 1000;
+
+      // schedule blink start
+      setTimeout(() => {
+        try {
+          let visible = true;
+          powerBlinkInterval = setInterval(() => {
+            try {
+              visible = !visible;
+              if (player && player.sprite) {
+                try { player.sprite.alpha = visible ? 1 : 0.25; } catch (e) {}
+              }
+            } catch (e) {}
+          }, 120);
+        } catch (e) {}
+      }, blinkStart);
+
+      // schedule end of power-up
+      powerTimeout = setTimeout(() => {
+        try {
+          // stop blinking
+          if (powerBlinkInterval) { clearInterval(powerBlinkInterval); powerBlinkInterval = null; }
+          if (player && player.sprite) try { player.sprite.alpha = 1; } catch (e) {}
+          // animate back to original over 400ms
+          powerScaleFrom = (player.sprite && player.sprite.scale) ? (player.sprite.scale.x || targetScale) : targetScale;
+          // restore to the exact original scale recorded when the power-up
+          // began rather than assuming `1` or recomputing from current state.
+          powerScaleTo = playerOriginalScale;
+          powerScaleStart = performance.now();
+          powerScaleDuration = 400;
+          powerScaleTickerActive = true;
+          // clear invulnerability after revert animation completes
+          setTimeout(() => {
+            try { playerInvincible = false; } catch (e) {}
+          }, powerScaleDuration + 20);
+        } catch (e) {}
+      }, totalMs);
+    } catch (e) {}
+  }
+
   // Game over handling (with grace/config)
   const GAME_OVER_GRACE_MS = 400;
   let gameOver = false;
@@ -955,7 +1294,8 @@ async function init() {
   let gameOverQueuedReason: string | null = null;
   let collisionEffectPlaying = false;
 
-  let controlsEnabled = true;
+  // Controls disabled until user starts the game from the start screen
+  let controlsEnabled = false;
   let playerDead = false;
 
   function playCollisionEffectAt(wx: number, wy: number, onComplete?: () => void) {
@@ -993,6 +1333,11 @@ async function init() {
     }
   }
 
+  // Spawn multiple image sprites at a world position and animate each to
+  // scale outward (e.g. up to 2x) with a small stagger and fade-out.
+  // - imagePaths: array of texture paths (e.g. ['/Assets/_arts/effect_va cham.png'])
+  // - options: { count, duration, stagger, startScale, endScale }
+ 
   function doGameOver(finalReason?: string, force = false) {
     if (gameOver) return;
     // Protect against false positives: if the player is currently on a
@@ -1002,87 +1347,20 @@ async function init() {
         const handler = (gameplay as any)._handler;
         const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : false;
         if (onPattern && player && player.onGround) {
-          console.debug && console.debug('Suppressing GameOver: player still on pattern', { finalReason, worldX: player.worldX, onPattern });
+          L.debug && L.debug('Suppressing GameOver: player still on pattern', { finalReason, worldX: player.worldX, onPattern });
           return;
         }
       }
     } catch (e) {}
 
     gameOver = true;
-    console.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
+    L.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
 
     // Pause Spine animation if available
     try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
 
-    // Simple Game Over overlay (added to `app.stage` so it covers the full screen regardless of `root` scaling)
     try {
-      const sw = canvas.clientWidth || window.innerWidth;
-      const sh = canvas.clientHeight || window.innerHeight;
-
-      const overlay = new Graphics();
-      try {
-        if (typeof (overlay as any).fill === 'function') {
-          try { (overlay as any).fill(0x000000, 0.65); } catch (e) { try { (overlay as any).fill({ color: 0x000000, alpha: 0.65 }); } catch (e) {} }
-        } else {
-          (overlay as any).beginFill && (overlay as any).beginFill(0x000000, 0.65);
-        }
-      } catch (e) {}
-      try { (overlay as any).rect ? (overlay as any).rect(0, 0, sw, sh) : (overlay as any).drawRect && (overlay as any).drawRect(0, 0, sw, sh); } catch (e) {}
-      try { (overlay as any).endFill && (overlay as any).endFill(); } catch (e) {}
-      overlay.zIndex = 100000;
-      try { app.stage.addChild(overlay); } catch (e) { try { root.addChild(overlay); } catch (e) {} }
-
-      const gs = new TextStyle({ fill: '#ffdddd', fontSize: 96, fontFamily: 'Helvetica, Arial', fontWeight: 'bold' });
-      const gt = new Text({ text: 'GAME OVER', style: gs });
-      gt.anchor && (gt as any).anchor?.set ? (gt as any).anchor.set(0.5, 0.5) : null;
-      gt.x = sw / 2;
-      gt.y = sh / 2 - 20;
-      try { app.stage.addChild(gt); } catch (e) { try { root.addChild(gt); } catch (e) {} }
-
-      // Play Again button (positioned relative to visible canvas size)
-      try {
-        const btnW = 320; const btnH = 64;
-        const btnX = Math.round(sw / 2 - btnW / 2);
-        const btnY = Math.round(sh / 2 + 60);
-        const btnBg = new Graphics();
-        try {
-          if (typeof (btnBg as any).fill === 'function') {
-            try { (btnBg as any).fill(0xffffff, 1); } catch (e) { try { (btnBg as any).fill({ color: 0xffffff, alpha: 1 }); } catch (e) {} }
-          } else {
-            (btnBg as any).beginFill && (btnBg as any).beginFill(0xffffff, 1);
-          }
-        } catch (e) {}
-        try { (btnBg as any).drawRoundedRect ? (btnBg as any).drawRoundedRect(btnX, btnY, btnW, btnH, 8) : (btnBg as any).roundedRect && (btnBg as any).roundedRect(btnX, btnY, btnW, btnH, 8); } catch (e) {}
-        try { (btnBg as any).endFill && (btnBg as any).endFill(); } catch (e) {}
-        btnBg.zIndex = 100001;
-        (btnBg as any).interactive = true;
-        (btnBg as any).buttonMode = true;
-        try { app.stage.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) {} }
-
-        const bts = new TextStyle({ fill: '#222222', fontSize: 28, fontFamily: 'Helvetica, Arial' });
-        const btnText = new Text({ text: 'Play Again', style: bts });
-        btnText.x = sw / 2;
-        btnText.y = btnY + btnH / 2;
-        btnText.anchor && (btnText as any).anchor?.set ? (btnText as any).anchor.set(0.5, 0.5) : null;
-        btnText.zIndex = 100002;
-        try { app.stage.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) {} }
-
-        const cleanupAndReset = () => {
-          try { app.stage.removeChild(overlay); } catch (e) { try { root.removeChild(overlay); } catch (e) {} }
-          try { app.stage.removeChild(gt); } catch (e) { try { root.removeChild(gt); } catch (e) {} }
-          try { app.stage.removeChild(btnBg); } catch (e) { try { root.removeChild(btnBg); } catch (e) {} }
-          try { app.stage.removeChild(btnText); } catch (e) { try { root.removeChild(btnText); } catch (e) {} }
-          try { if (gameOverQueuedTimer) { clearTimeout(gameOverQueuedTimer as any); gameOverQueuedTimer = null; } } catch (e) {}
-          gameOver = false;
-        };
-
-        btnBg.on && btnBg.on('pointerdown', () => {
-          try {
-            // Reload the entire page to ensure a clean state
-            try { window.location.reload(); } catch (e) { location.reload(); }
-          } catch (e) {}
-        });
-      } catch (e) {}
+      showGameOver({ app, root, canvas, onPlayAgain: () => { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } });
     } catch (e) {}
   }
 
@@ -1098,7 +1376,7 @@ async function init() {
           const handler = (gameplay as any)._handler;
           const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : true;
           if (onPattern) {
-            console.log('GameOver canceled (player returned to pattern):', reason);
+            L.log('GameOver canceled (player returned to pattern):', reason);
             return;
           }
         }
@@ -1163,6 +1441,15 @@ async function init() {
   }
 
   updateScale();
+
+  // Show start screen and enable controls when the player presses Play
+  try {
+    showStartScreen && showStartScreen({ app, root, canvas, onStart: async () => {
+      try { await startGame(); } catch (e) { console.warn('startGame failed on start', e); }
+      try { controlsEnabled = true; } catch (e) {}
+      try { SoundController.playBackground(); } catch (e) {}
+    } });
+  } catch (e) {}
 
   function onResize() {
     applyCanvasCssSize();
