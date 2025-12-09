@@ -167,13 +167,13 @@ async function init() {
   root.addChild(label);
 
   try {
-    let soundEnabled = false;
+    let soundEnabled = true; // Mặc định sound ON
     const soundToggle = new Container();
     const btnW = 120; const btnH = 36;
     const btn = new Graphics();
     try { btn.clear(); btn.beginFill(0x000000, 0.45); btn.drawRoundedRect(0, 0, btnW, btnH, 6); btn.endFill(); } catch (e) {}
     const lblStyle = new TextStyle({ fill: '#ffffff', fontSize: 16, fontFamily: 'Helvetica-Bold' });
-    const lbl = new Text({ text: 'Sound: Off', style: lblStyle });
+    const lbl = new Text({ text: 'Sound: On', style: lblStyle }); // Hiển thị Sound: On mặc định
     lbl.x = 10; lbl.y = 6;
     soundToggle.addChild(btn);
     soundToggle.addChild(lbl);
@@ -441,6 +441,14 @@ async function init() {
 
   let gameplay: any = null;
   let backgroundStarted = false;
+  
+  // Tự động bật nhạc nền khi khởi động game
+  try {
+    SoundController.playBackgroundForced(300);
+    backgroundStarted = true;
+  } catch (e) {
+    try { SoundController.playBackground(); } catch (e) {}
+  }
 
   const pickups: any[] = [];
   const spawnedPatternContainers: any[] = [];
@@ -453,9 +461,7 @@ async function init() {
   let rewardActive = false;
   let rewardPermanentStop = false;
   let rewardClaimed = false;
-  let playerInvincible = false;
-  let powerTimeout: ReturnType<typeof setTimeout> | null = null;
-  let powerBlinkInterval: ReturnType<typeof setInterval> | null = null;
+  // Removed invincible and blinking code
   const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 56, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' });
   const scoreText = new Text({ text: 'Score: 0', style: scoreStyle });
   scoreText.x = WIDTH - 320;
@@ -733,22 +739,7 @@ async function init() {
   debug.visible = false;
   root.addChild(debug);
   
-  // Thêm marker debug để thấy vị trí nhân vật
-  const playerMarker = new Graphics();
-  playerMarker.circle(0, 0, 50).fill({ color: 0xff0000, alpha: 0.7 });
-  playerMarker.visible = true;
-  playerMarker.zIndex = 10000;
-  world.addChild(playerMarker);
-  
-  // Update marker position theo nhân vật
-  const updatePlayerMarker = () => {
-    if (player && player.sprite) {
-      playerMarker.x = player.sprite.x;
-      playerMarker.y = player.sprite.y;
-      // Debug: Hiển thị vị trí trên marker
-      playerMarker.alpha = 0.5; // Làm marker trong suốt hơn để thấy nhân vật phía sau
-    }
-  };
+  // Player marker removed - no more red circle debug marker
   let debugEnabled = false;
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyD') {
@@ -777,18 +768,15 @@ async function init() {
         const y = typeof d.y === 'number' ? d.y : (d && d.pos && d.pos.y) || 0;
         try { playCollisionEffectAt(x, y); } catch (e) {}
         try { SoundController.playPickup(); } catch (e) {}
-        try { 
-          prevScore = score;
-          score += 1; 
-          scoreText.text = `Score: ${score}`; 
-        } catch (e) {}
         try {
-          const prevTier = Math.floor((prevScore || 0) / 1000);
-          const newTier = Math.floor(score / 1000);
-          if (newTier > prevTier) {
-            try { activatePowerUp(); } catch (e) {}
+          // Chỉ cộng điểm khi game chưa over
+          if (!playerDead && !gameOver) {
+            prevScore = score;
+            score += 1; 
+            scoreText.text = `Score: ${score}`; 
           }
         } catch (e) {}
+        // Power-up tier system removed
 
       } catch (e) {}
     });
@@ -819,6 +807,26 @@ async function init() {
     const playerMoveSpeed = speed * PLAYER_SPEED_FACTOR;
     if (!playerDead) {
       player.worldX += playerMoveSpeed * deltaSec;
+    }
+
+    // Kiểm tra player có ra khỏi màn hình bên trái không
+    try {
+      if (!playerDead && !gameOver) {
+        const playerScreenX = player.worldX + (world.x || 0);
+        const leftBoundary = -playerRadius; // Cho phép player ra ngoài một chút trước khi game over
+        
+        if (playerScreenX < leftBoundary) {
+          console.log('Player went off screen left, game over!');
+          try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+          try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+          try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+          try { doGameOver && doGameOver('fell-behind', true); } catch (e) { 
+            try { doGameOver && doGameOver('fell-behind'); } catch (e) {} 
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error checking left boundary:', e);
     }
 
     (app as any).__prevPlayerBottom = player.y + playerRadius;
@@ -955,15 +963,12 @@ async function init() {
             player.sprite.y = player.y;
             try {
               if (!(o as any).isGround) {
-                if (playerInvincible) {
-                } else {
-                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                  return;
-                }
+                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                return;
               }
             } catch (e) {}
           } else if (currBottom > obstacleTop) {
@@ -971,15 +976,12 @@ async function init() {
             player.sprite.x = player.worldX;
             try {
               if (!(o as any).isGround) {
-                if (playerInvincible) {
-                } else {
-                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                  return;
-                }
+                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                return;
               }
             } catch (e) {}
           }
@@ -992,13 +994,11 @@ async function init() {
       if (blocking && !(blocking as any).isGround) {
         try {} catch (e) {}
         try {
-          if (!playerInvincible) {
-            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-            try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-            playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-          }
+          try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+          try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+          try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+          try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+          playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
         } catch (e) {}
         return;
       }
@@ -1082,23 +1082,17 @@ async function init() {
     label.text = `Speed(cam): ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)}`;
 
     // Update player marker
-    try { updatePlayerMarker(); } catch (e) {}
+    // Player marker update removed
 
     try {
       const newThreshold = Math.floor(scroll / 100);
-      if (newThreshold > lastDistanceThreshold) {
+      if (newThreshold > lastDistanceThreshold && !playerDead && !gameOver) {
         const gainedUnits = newThreshold - lastDistanceThreshold;
         try { prevScore = score; } catch (e) {}
         score += gainedUnits * 15;
         try { scoreText.text = `Score: ${score}`; } catch (e) {}
         lastDistanceThreshold = newThreshold;
-        try {
-          const prevTier = Math.floor((prevScore || 0) / 1000);
-          const newTier = Math.floor(score / 1000);
-          if (newTier > prevTier) {
-            try { activatePowerUp(); } catch (e) {}
-          }
-        } catch (e) {}
+        // Power-up tier system removed
       }
     } catch (e) {}
 
@@ -1194,48 +1188,7 @@ async function init() {
     }
   });
 
-  function activatePowerUp() {
-    try {
-      if (!player || playerInvincible) return;
-      playerInvincible = true;
-      let origScale = 1;
-      try {
-        if (spinePlayerInstance && typeof (spinePlayerInstance as any).setScale === 'function' && spinePlayerInstance.view && spinePlayerInstance.view.scale) {
-          origScale = spinePlayerInstance.view.scale.x || 1;
-        } else {
-          origScale = (player.sprite && player.sprite.scale) ? (player.sprite.scale.x || 1) : 1;
-        }
-      } catch (e) { origScale = 1; }
-
-      if (powerTimeout) { clearTimeout(powerTimeout); powerTimeout = null; }
-      if (powerBlinkInterval) { clearInterval(powerBlinkInterval); powerBlinkInterval = null; }
-
-      const totalMs = 10000;
-      const blinkStart = totalMs - 1000;
-
-      setTimeout(() => {
-        try {
-          let visible = true;
-          powerBlinkInterval = setInterval(() => {
-            try {
-              visible = !visible;
-              if (player && player.sprite) {
-                try { player.sprite.alpha = visible ? 1 : 0.25; } catch (e) {}
-              }
-            } catch (e) {}
-          }, 120);
-        } catch (e) {}
-      }, blinkStart);
-
-      powerTimeout = setTimeout(() => {
-        try {
-          if (powerBlinkInterval) { clearInterval(powerBlinkInterval); powerBlinkInterval = null; }
-          if (player && player.sprite) try { player.sprite.alpha = 1; } catch (e) {}
-          try { playerInvincible = false; } catch (e) {}
-        } catch (e) {}
-      }, totalMs);
-    } catch (e) {}
-  }
+  // Power-up system removed
 
   const GAME_OVER_GRACE_MS = 400;
   let gameOver = false;
