@@ -2,19 +2,150 @@ import { Assets, Texture, Rectangle } from 'pixi.js';
 
 declare const require: any;
 
-// --- 1. IMPORT RAW DATA ---
+// Import spine assets directly - webpack will handle them
 import _chickenPng from '../Assets/Arts/anim/kfc_chicken.png';
 import _chickenAtlas from '../Assets/Arts/anim/kfc_chicken.atlas'; 
 import _chickenJson from '../Assets/Arts/anim/kfc_chicken.json';
 
-// Export dữ liệu thô
+// Helper function to decode webpack assets
+function decodeWebpackAsset(asset: any): string {
+    if (typeof asset === 'string') {
+        // If it's a data URL, decode base64
+        if (asset.startsWith('data:')) {
+            try {
+                const commaIdx = asset.indexOf(',');
+                if (commaIdx > -1) {
+                    const base64 = asset.substring(commaIdx + 1);
+                    return atob(base64);
+                }
+            } catch (e) {
+                console.error('Failed to decode base64 asset:', e);
+            }
+        }
+        return asset;
+    }
+    if (asset && asset.default) return decodeWebpackAsset(asset.default);
+    return '';
+}
+
+// Export spine assets with decoding
 export const RAW_SPINE_ASSETS = {
     png: _chickenPng,
-    atlas: _chickenAtlas,
-    json: _chickenJson
+    atlas: decodeWebpackAsset(_chickenAtlas),
+    json: _chickenJson // JSON should be imported as object by webpack
 };
 
 export const FIXED_CHICKEN_ALIAS = 'fixed_chicken_tex';
+
+// --- Spine Texture Management ---
+let spineTextureReady: Texture | null = null;
+let spineAssetsCache: { texture: Texture | null; jsonData: any; atlasText: string } | null = null;
+
+export function getSpineTexture(): Texture | null {
+    return spineTextureReady;
+}
+
+export async function prepareSpineTexture(): Promise<Texture | null> {
+    try {
+        // Load spine texture using webpack imports
+        if (!spineTextureReady) {
+            Assets.add({ alias: FIXED_CHICKEN_ALIAS, src: RAW_SPINE_ASSETS.png });
+            const tex = await Assets.load(FIXED_CHICKEN_ALIAS);
+            
+            if (tex && tex.width > 0 && tex.height > 0) {
+                spineTextureReady = tex;
+            }
+        }
+        return spineTextureReady;
+    } catch (e) {
+        return null;
+    }
+}
+
+export async function loadSpineAssets(): Promise<{
+    texture: Texture | null;
+    jsonData: any;
+    atlasText: string;
+}> {
+    // Return cached assets if available
+    if (spineAssetsCache && spineAssetsCache.texture) {
+        return spineAssetsCache;
+    }
+    
+    // Load spine assets using PIXI Assets system like in spine-runtimes commit
+    try {
+        // Create blob URLs for the assets (safer than data URLs)
+        const atlasBlob = new Blob([RAW_SPINE_ASSETS.atlas], { type: 'text/plain' });
+        const atlasUrl = URL.createObjectURL(atlasBlob);
+        
+        const jsonString = typeof RAW_SPINE_ASSETS.json === 'object' 
+            ? JSON.stringify(RAW_SPINE_ASSETS.json) 
+            : RAW_SPINE_ASSETS.json;
+        const jsonBlob = new Blob([jsonString], { type: 'application/json' });
+        const jsonUrl = URL.createObjectURL(jsonBlob);
+        
+        // First load the texture
+        const baseTexture = await Assets.load({
+            alias: 'spineTexture',
+            src: RAW_SPINE_ASSETS.png
+        });
+        
+        console.log('Base texture loaded:', {
+            width: baseTexture.width,
+            height: baseTexture.height,
+            valid: baseTexture.valid
+        });
+        
+        // Add atlas with explicit loadParser and texture mapping
+        Assets.add({
+            alias: 'spineAtlas',
+            loadParser: 'spineTextureAtlasLoader',
+            src: atlasUrl,
+            data: {
+                images: {
+                    'kfc_chicken.png': baseTexture.source // Use texture source for v8
+                }
+            }
+        });
+        
+        // Add skeleton data
+        Assets.add({
+            alias: 'spineSkeleton', 
+            loadParser: 'loadJson',
+            src: jsonUrl
+        });
+        
+        // Load both atlas and skeleton
+        await Assets.load(['spineAtlas', 'spineSkeleton']);
+        
+        console.log('Spine assets loaded via PIXI Assets system');
+        
+        // Cache the results
+        spineAssetsCache = {
+            texture: baseTexture,
+            jsonData: RAW_SPINE_ASSETS.json,
+            atlasText: RAW_SPINE_ASSETS.atlas
+        };
+        
+        return spineAssetsCache;
+        
+    } catch (error) {
+        console.error('Failed to load spine assets via PIXI Assets:', error);
+        
+        // Fallback to old method
+        const texture = await prepareSpineTexture();
+        const atlasText = RAW_SPINE_ASSETS.atlas;
+        const jsonData = RAW_SPINE_ASSETS.json;
+        
+        spineAssetsCache = {
+            texture,
+            jsonData,
+            atlasText
+        };
+        
+        return spineAssetsCache;
+    }
+}
 
 // --- Webpack Context ---
 function importAll(r: any) {
@@ -46,22 +177,11 @@ function registerSmartAliases(sourceMap: any, baseFolder: string, loadList: stri
 }
 
 export async function loadGameAssets() {
-    console.log('Start loading assets...');
+
     const assetsToLoad: string[] = [];
 
     // --- 1. SETUP SPINE TEXTURE ---
-    try {
-        // Nạp texture con gà vào Cache với tên cố định
-        // Dùng Assets.load để đảm bảo nó được upload lên GPU và có width/height > 0
-        Assets.add({ alias: FIXED_CHICKEN_ALIAS, src: _chickenPng });
-        const tex = await Assets.load(FIXED_CHICKEN_ALIAS);
-        
-        if (tex) {
-            console.log(`Spine Texture Ready: ${tex.width}x${tex.height}`);
-        } else {
-            console.error("Spine Texture failed to load!");
-        }
-    } catch (e) { console.warn('Spine setup error', e); }
+    await prepareSpineTexture();
 
     // --- 2. LOAD ARTS & SOUNDS ---
     registerSmartAliases(arts, '../Assets/_arts', assetsToLoad);
@@ -70,7 +190,7 @@ export async function loadGameAssets() {
     if (assetsToLoad.length > 0) {
         await Assets.load(assetsToLoad); 
     }
-    console.log('All assets loaded.');
+
     return { images: arts, sounds };
 }
 

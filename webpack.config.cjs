@@ -34,15 +34,15 @@ module.exports = {
                 resolve: { fullySpecified: false }
             },
             {
-                test: /\.(png|svg|jpg|jpeg|gif|json|txt|pac|mp3|wav|ogg|ttf)$/i,
+                test: /\.(png|svg|jpg|jpeg|gif|txt|pac|mp3|wav|ogg|ttf)$/i,
                 type: 'asset/inline',
             },
             {
-                test: /\.atlas$/i,
+                test: /\.atlas$/,
                 type: 'asset/inline',
                 generator: {
                     dataUrl: {
-                        mimetype: 'text/plain' // Báo cho Webpack biết đây là file văn bản
+                        mimetype: 'text/plain'
                     }
                 }
             },
@@ -60,6 +60,8 @@ module.exports = {
             inject: 'body',
             minify: false 
         }),
+        
+
         
         new HtmlInlineScriptPlugin(),
         new webpack.optimize.LimitChunkCountPlugin({

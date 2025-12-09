@@ -75,7 +75,6 @@ class SoundController {
       this.sounds.hit.preload = 'auto';
     } catch (e) {
       // swallow errors - building targets may vary
-      console.warn('SoundController.init failed to create audio elements', e);
     }
   }
 

@@ -2,7 +2,7 @@ import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Text
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { createGameplay } from './gameplay';
-import { loadTexture, loadGameAssets, RAW_SPINE_ASSETS } from './assetLoader';
+import { loadTexture, loadGameAssets } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
 import makeDanger1 from './patterns/Danger1';
 import makeDanger2 from './patterns/Danger2';
@@ -40,7 +40,6 @@ async function init() {
   // Nếu không có dòng này, mọi lệnh loadTexture hay SpinePlayer ở dưới đều sẽ gây lỗi CORS.
   
       await loadGameAssets();
-      console.log("Assets initialized.");
   
   // -----------------------
 
@@ -201,8 +200,8 @@ async function init() {
   const PLAYER_SPAWN_LIFT = 80;
   let player: any = null;
   
-  // Luôn tạo nhân vật với graphics fallback trước
-  console.log('Creating player character...');
+  // Tạo nhân vật với graphics fallback trước - sẽ được thay thế bằng spine
+  console.log('Creating initial character with red circle fallback');
   player = createCharacter({ 
     PLAYER_X, 
     playerRadius, 
@@ -220,19 +219,13 @@ async function init() {
   player.sprite.visible = true;
   player.sprite.alpha = 1;
   player.sprite.x = PLAYER_X;
+  
+  // Add initial sprite to world with debug
+  console.log('Adding initial red circle to world');
+  world.addChild(player.sprite);
   player.sprite.y = player.y;
   
   world.addChild(player.sprite);
-  console.log('Player created and added to world:', { 
-    x: player.sprite.x, 
-    y: player.sprite.y, 
-    visible: player.sprite.visible,
-    alpha: player.sprite.alpha,
-    worldX: player.worldX,
-    worldY: world.y,
-    groundY: groundY,
-    actualGroundY: groundY - PLAYER_SPAWN_LIFT
-  });
   try {
     if (player && typeof player.jump === 'function') {
       const _origJump = player.jump.bind(player);
@@ -268,7 +261,7 @@ async function init() {
   try {
     (player.sprite as any).visible = true;
     (player.sprite as any).alpha = 1;
-    L.log('Player spawned:', { worldX: player.worldX, x: player.sprite.x, y: player.sprite.y });
+
   } catch (e) {}
 
   let spinePlayerInstance: any = null;
@@ -277,40 +270,36 @@ async function init() {
  
   async function reloadSpineAnimations() {
     try {
-      console.log('🦴 Starting Spine animation reload...');
       
       if (spinePlayerInstance?.view) {
-        console.log('🗑️ Removing existing spine instance');
         try { world.removeChild(spinePlayerInstance.view); } catch(e){}
       }
       
       const sp = new SpinePlayer('kfc_chicken');
-      console.log('📦 SpinePlayer instance created');
       
-      // Truyền RAW_SPINE_ASSETS vào hàm load
-      console.log('🔄 Loading Spine assets with RAW_SPINE_ASSETS...');
-      await sp.load('/Assets/Arts/anim/', RAW_SPINE_ASSETS);
-      console.log('✅ Spine load completed. View exists:', !!sp.view, 'Spine exists:', !!sp.spine); 
+      // Use PIXI Assets-based loading method
+      await sp.loadFromAssetLoader();
       
-      // Kiểm tra view trước khi dùng
       if (!sp.view) {
         throw new Error('SpinePlayer.view is null after load!');
       }
       
-      console.log('👁️ View info: type=' + sp.view.constructor.name + ' x=' + sp.view.x + ' y=' + sp.view.y + ' visible=' + sp.view.visible + ' children=' + (sp.view.children?.length || 0));
-      
       // Tăng scale để thấy rõ hơn  
       const finalScale = 3.0 * CHARACTER_SCALE_FACTOR; // Tăng lên 3.0
-      console.log('📐 Setting scale to:', finalScale);
       sp.setScale(finalScale);
       sp.setPosition(player.worldX, player.y);
       
-      // Đảm bảo sprite cũ bị loại bỏ
-      console.log('🗑️ Removing old player sprite...');
-      try { world.removeChild(player.sprite); } catch(e){}
+      // FORCE remove old sprite
+      console.log('Removing old sprite, current sprite type:', player.sprite.constructor.name);
+      try { 
+        world.removeChild(player.sprite); 
+        console.log('Old sprite removed successfully');
+      } catch(e){
+        console.error('Failed to remove old sprite:', e);
+      }
       
       // Gán sprite mới và thêm vào world
-      console.log('🎮 Assigning spine view to player...');
+      console.log('Replacing with spine view, type:', sp.view.constructor.name);
       player.sprite = sp.view;
       player.sprite.visible = true;
       player.sprite.alpha = 1;
@@ -318,109 +307,58 @@ async function init() {
       player.sprite.y = player.y;
       player.sprite.zIndex = 5000;
       
-        console.log('🌍 Adding to world...');
       world.addChild(player.sprite);
+      console.log('New spine sprite added to world');
       world.sortableChildren = true;
       
       spinePlayerInstance = sp;
-      console.log('✅ Spine added! World children:', world.children.length);
       
       // DEBUG: Kiểm tra chi tiết Spine view
-      console.log('🔍 Spine View Debug:');
-      console.log('  - Constructor:', sp.view.constructor.name);
-      console.log('  - Bounds:', sp.view.getBounds ? sp.view.getBounds() : 'no getBounds');
-      console.log('  - LocalBounds:', sp.view.getLocalBounds ? sp.view.getLocalBounds() : 'no getLocalBounds');
-      console.log('  - Transform:', { x: sp.view.x, y: sp.view.y, scaleX: sp.view.scale.x, scaleY: sp.view.scale.y });
       const slotsWithAttachments = sp.spine?.skeleton?.slots?.filter((slot: any) => slot.attachment).length || 0;
-      console.log('  - Skeleton slots visible:', slotsWithAttachments);
       
       // CRITICAL DEBUG: Check if any slots have attachments
       if (slotsWithAttachments === 0) {
-        console.error('❌ NO SLOTS HAVE ATTACHMENTS! This is why Spine is invisible!');
-        console.log('  - Total slots:', sp.spine?.skeleton?.slots?.length || 0);
-        console.log('  - Slot details:', sp.spine?.skeleton?.slots?.map((slot: any, i: number) => 
-          `${i}: ${slot?.bone?.data?.name || 'unknown'} attachment: ${!!slot?.attachment}`
-        ).join(', '));
       } else {
-        console.log('✅ SLOTS HAVE ATTACHMENTS - Spine should be visible!');
       }
       
       // FORCE render update
       try {
         if (sp.spine && sp.spine.update) {
           sp.spine.update(0.016); // Force 60fps update
-          console.log('⚙️ Forced spine update after add');
         }
-      } catch (e) { console.warn('Force update failed:', e); }
+      } catch (e) {}
       
-      // EMERGENCY FALLBACK: If Spine fails completely, create a simple sprite
+      // DEBUG: Check spine bounds
       try {
         const bounds = sp.view.getBounds ? sp.view.getBounds() : null;
         const hasSize = bounds && (bounds.width > 0 || bounds.height > 0);
         
-        console.log('🔍 Spine bounds check:', bounds, 'hasSize:', hasSize);
+        console.log('Spine Bounds Check:', {
+          hasBounds: !!bounds,
+          width: bounds?.width || 0,
+          height: bounds?.height || 0,
+          hasSize: hasSize
+        });
         
-        if (!hasSize) {
-          console.log('🚨 SPINE HAS NO SIZE - Creating emergency fallback...');
-          
-          // Create emergency chicken sprite from texture atlas
-          const emergencySprite = new Graphics();
-          emergencySprite.rect(0, 0, 60, 80).fill({ color: 0xFFD700 }); // Gold chicken shape
-          emergencySprite.rect(10, 10, 20, 20).fill({ color: 0xFF4500 }); // Head
-          emergencySprite.rect(15, 15, 5, 5).fill({ color: 0x000000 }); // Eye
-          emergencySprite.rect(12, 22, 8, 3).fill({ color: 0xFF8C00 }); // Beak
-          emergencySprite.pivot.set(30, 40); // Center pivot
-          
-          console.log('🐔 Created emergency chicken sprite');
-          
-          // Replace spine view with emergency sprite
-          try { world.removeChild(player.sprite); } catch(e){}
-          player.sprite = emergencySprite;
-          player.sprite.visible = true;
-          player.sprite.alpha = 1;
-          player.sprite.x = player.worldX;
-          player.sprite.y = player.y;
-          player.sprite.zIndex = 5000;
-          world.addChild(player.sprite);
-          
-          console.log('🚑 Emergency sprite activated as fallback');
-        } else {
-          console.log('✅ Spine has size:', bounds?.width + 'x' + bounds?.height);
-        }
+        // Force use spine even if bounds are 0 (bounds might be calculated after first render)
+        // Don't create emergency fallback
+        
       } catch (e) {
-        console.warn('Emergency fallback failed:', e);
+        console.error('Spine bounds check error:', e);
       }      // Chạy animation mặc định
       try { 
-        console.log('🎬 Available animations:', sp.getAnimations());
-        console.log('🎬 Starting run animation...');
         const playResult = sp.play('run', true, 0);
-        console.log('🎬 Play result:', playResult);
         
         // Kiểm tra animation state
         if (sp.spine && sp.spine.state) {
           const current = sp.spine.state.getCurrent(0);
-          console.log('🎬 Current animation on track 0:', current ? current.animation.name : 'none');
         }
       } catch (e) { 
-        console.warn('❌ Failed to start run animation:', e);
       }
-      
-      console.log('Spine character loaded and added to world:', { 
-        x: player.sprite.x, 
-        y: player.sprite.y, 
-        visible: player.sprite.visible,
-        alpha: player.sprite.alpha,
-        spineLoaded: !!sp.spine,
-        scale: player.sprite.scale.x,
-        worldChildren: world.children.length,
-        screenX: player.sprite.x + world.x,
-        screenY: player.sprite.y + world.y
-      });
+
       
       // FORCE nhân vật lên vị trí có thể nhìn thấy
       const visibleY = HEIGHT / 2; // Giữa màn hình
-      console.log('🎯 Force positioning player at visible location');
-      console.log('Before move - Y:', player.sprite.y, 'HEIGHT:', HEIGHT);
       
       player.y = visibleY;
       player.sprite.y = visibleY;
@@ -429,41 +367,27 @@ async function init() {
       // Đảm bảo Spine sprite có zIndex cao
       player.sprite.zIndex = 5000;
       world.sortableChildren = true;
-      
-      console.log('After move - Y:', player.sprite.y, 'screenY:', player.sprite.y + (world.y || 0));
-      console.log('🎯 Player final position: x=' + player.sprite.x + ' y=' + player.sprite.y + ' screenX=' + (player.sprite.x + (world.x || 0)) + ' screenY=' + (player.sprite.y + (world.y || 0)) + ' visible=' + player.sprite.visible + ' alpha=' + player.sprite.alpha + ' zIndex=' + player.sprite.zIndex);
+
       
       // FINAL DEBUG: Check skeleton render state
       if (sp.spine && sp.spine.skeleton) {
         const skeleton = sp.spine.skeleton;
-        console.log('💀 Final Skeleton State:');
-        console.log('  - Bones active:', skeleton.bones?.length || 0);
         const attachedSlots = skeleton.slots?.filter((slot: any) => slot.attachment).length || 0;
-        console.log('  - Slots with attachments:', attachedSlots);
-        console.log('  - Skeleton alpha:', skeleton.a || skeleton.alpha);
-        console.log('  - Skeleton color:', skeleton.color);
-        console.log('  - Root bone pos:', skeleton.getRootBone ? { x: skeleton.getRootBone().x, y: skeleton.getRootBone().y } : 'no root');
-        console.log('  - Skeleton bounds:', { x: skeleton.x, y: skeleton.y });
         
         // EMERGENCY: If no attachments, try multiple approaches
         if (attachedSlots === 0) {
-          console.log('🆘 EMERGENCY: Trying to restore slot attachments...');
           
           // Method 1: Try default skin
           try {
             if (skeleton.data && skeleton.data.defaultSkin) {
-              console.log('📋 Method 1: Found default skin, trying to apply...');
               skeleton.setSkin(skeleton.data.defaultSkin);
               skeleton.setSlotsToSetupPose();
-              console.log('✅ Emergency skin restore attempted');
             }
           } catch (e) {
-            console.warn('❌ Method 1 failed:', e);
           }
           
           // Method 2: Manual attachment restoration
           try {
-            console.log('📋 Method 2: Manual attachment restoration...');
             if (skeleton.slots && skeleton.data && skeleton.data.defaultSkin) {
               const skin = skeleton.data.defaultSkin;
               skeleton.slots.forEach((slot: any, i: number) => {
@@ -474,7 +398,6 @@ async function init() {
                       const attachment = skin.getAttachment ? skin.getAttachment(slotData.index, slotData.attachmentName) : null;
                       if (attachment) {
                         slot.attachment = attachment;
-                        console.log(`🔗 Restored slot ${i} (${slotData.name}) attachment`);
                       }
                     }
                   } catch (e) {}
@@ -482,32 +405,25 @@ async function init() {
               });
             }
           } catch (e) {
-            console.warn('❌ Method 2 failed:', e);
           }
           
           // Method 3: Force first skin if available
           try {
-            console.log('📋 Method 3: Force first available skin...');
             if (skeleton.data && skeleton.data.skins && skeleton.data.skins.length > 0) {
               const firstSkin = skeleton.data.skins[0];
-              console.log('🎨 Using first skin:', firstSkin.name);
               skeleton.setSkin(firstSkin);
               skeleton.setSlotsToSetupPose();
             }
           } catch (e) {
-            console.warn('❌ Method 3 failed:', e);
           }
           
           // Final check
           const newAttached = skeleton.slots?.filter((slot: any) => slot.attachment).length || 0;
-          console.log(`🔍 After emergency restore: ${newAttached} slots now have attachments`);
         }
       }
     } catch (e) { 
-      console.warn('Spine load failed, keeping original character:', e);
       // Nếu Spine fail, tạo sprite đỏ to để debug
       try {
-        console.log('Spine failed, creating debug sprite');
         const debugSprite = new Graphics();
         debugSprite.circle(0, 0, 40).fill({ color: 0x00ff00 }); // Vòng tròn xanh lá
         debugSprite.x = player.worldX;
@@ -518,9 +434,7 @@ async function init() {
         player.sprite = debugSprite;
         world.addChild(player.sprite);
         world.sortableChildren = true;
-        console.log('Added green debug sprite as fallback');
       } catch (e2) {
-        console.warn('Failed to create debug sprite:', e2);
       }
     }
   }
@@ -591,7 +505,7 @@ async function init() {
     try { await loadTexture('/Assets/_arts/bg_1_standee1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/gameover.jpg'); } catch (e) {}
     // try { await loadTexture('/Assets/Arts/anim/kfc_chicken.png'); } catch (e) {}
-  } catch (e) { console.warn('Texture preload failed', e); }
+  } catch (e) {}
 
   let spaceHeld = false;
   let pointerHeld = false;
@@ -645,12 +559,12 @@ async function init() {
       try {
         gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
         try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
-      } catch (e) { console.warn('createGameplay failed', e); }
+      } catch (e) {}
 
       // Tạo patterns sau khi đã có gameplay
       try {
         const handler = (gameplay as any)._handler;
-        console.log('Starting pattern creation, handler:', !!handler);
+
         const patterns: any[] = [];
         const NUM_PATTERNS = 200;
         const PIT_WIDTH = 300;
@@ -740,7 +654,7 @@ async function init() {
           if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
         }
 
-        console.log('Patterns created:', patterns.length);
+
         
         // Setup handler debug keys
         try {
@@ -757,7 +671,7 @@ async function init() {
               if (ev.code === 'KeyH') {
                 try { 
                   const newState = handler.toggleHitboxes();
-                  console.log('Pattern hitbox debug:', newState);
+
                 } catch (e) {}
               }
             });
@@ -767,7 +681,7 @@ async function init() {
         // Định vị lại player trên pattern đầu tiên
         try {
           const p1 = patterns.length > 0 ? patterns[0] : null;
-          console.log('First pattern:', !!p1, p1?.container?.y);
+
           if (p1 && p1.container && player) {
             const startX1 = 0;
             const visualLength = p1 && p1.container ? (() => { try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; } })() : (p1 ? p1.length : 700);
@@ -787,34 +701,17 @@ async function init() {
               player.sprite.x = player.worldX;
               player.sprite.y = player.y; 
             } catch (e) {}
-            
-            console.log('Player positioned on first pattern:', { 
-              worldX: player.worldX, 
-              y: player.y, 
-              patternY: p1.container.y,
-              spriteX: player.sprite.x,
-              spriteY: player.sprite.y,
-              spriteVisible: player.sprite.visible,
-              worldX_pos: world.x,
-              worldY_pos: world.y,
-              screenX: player.sprite.x + world.x,
-              screenY: player.sprite.y + world.y
-            });
+
           } else {
-            console.warn('Cannot position player - missing pattern or player:', { p1: !!p1, container: !!p1?.container, player: !!player });
           }
         } catch (e) {
-          console.warn('Error positioning player:', e);
         }
-      } catch (e) { console.warn('Failed to spawn patterns in startGame', e); }
+      } catch (e) {}
       
       // Load Spine animation - DEBUG ENHANCED
       try { 
-        console.log('=== STARTING SPINE LOAD ===');
         await reloadSpineAnimations(); 
-        console.log('=== SPINE LOAD COMPLETED ===');
       } catch (e) { 
-        console.error('=== SPINE LOAD FAILED ===', e); 
       }
       
       try { SoundController.init('/Assets/Sounds/'); SoundController.resumeOnUserGesture(); } catch (e) {}
@@ -826,7 +723,7 @@ async function init() {
         }
       } catch (e) {}
       
-    } catch (e) { console.warn('startGame failed', e); }
+    } catch (e) {}
   }
 
   const debugStyle = new TextStyle({ fill: '#ffff00', fontSize: 18 });
@@ -868,7 +765,7 @@ async function init() {
     if (e.code === 'KeyP') {
       pickupDebug = !pickupDebug;
       pickupDebugContainer.visible = pickupDebug;
-      L.log('Pickup debug:', pickupDebug);
+
     }
   });
 
@@ -892,7 +789,7 @@ async function init() {
             try { activatePowerUp(); } catch (e) {}
           }
         } catch (e) {}
-        L.info && L.info('pickup event handled (score updated)', d);
+
       } catch (e) {}
     });
   } catch (e) {}
@@ -1018,7 +915,7 @@ async function init() {
               if (intersects(itemBounds, playerBounds)) {
                 collected = true;
               } else {
-                if (pickupDebug) L.debug && L.debug('PICKUP: miss bounds', { i, type: it.type, itemBounds, playerBounds });
+
               }
             } catch (e) {
               const PICK_RADIUS = 48 + playerRadius;
@@ -1030,7 +927,7 @@ async function init() {
 
               if (collected) {
                 try {
-                  L.debug && L.debug('PICKUP: hit (collected)', { i, type: it.type, itemGlobalX, itemGlobalY });
+
                   try { if (typeof it.collect === 'function') { it.collect(); } else { if (it.parent) it.parent.removeChild(it); } } catch (e) {}
                   pickups.splice(i, 1);
                 } catch (e) {}
@@ -1093,7 +990,7 @@ async function init() {
     try {
       const blocking = (gameplay as any).getBlockingObstacle ? (gameplay as any).getBlockingObstacle(player.worldX, player.y, playerRadius) : null;
       if (blocking && !(blocking as any).isGround) {
-        try { L.debug && L.debug('Player collided with obstacle', blocking); } catch (e) {}
+        try {} catch (e) {}
         try {
           if (!playerInvincible) {
             try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
@@ -1111,13 +1008,6 @@ async function init() {
       if (spinePlayerInstance) {
         // DEBUG: Log spine state every few seconds (throttled)
         if (Math.floor(Date.now() / 5000) % 2 === 0 && Math.random() < 0.001) {
-          console.log('🔄 Spine runtime check:', {
-            exists: !!spinePlayerInstance.spine,
-            viewExists: !!spinePlayerInstance.view, 
-            inWorld: world.children.includes(spinePlayerInstance.view),
-            visible: spinePlayerInstance.view?.visible,
-            alpha: spinePlayerInstance.view?.alpha
-          });
         }
         
         let shouldShowRun = false;
@@ -1155,7 +1045,7 @@ async function init() {
                   spinePlayerInstance.play && spinePlayerInstance.play('run', true, 0);
                 }
                 if (trackPaused) {
-                  try { L.debug && L.debug('LAND: resuming run animation'); } catch (e) {}
+                  try {} catch (e) {}
                 }
                 try { spinePlayerInstance.resumeTrack && spinePlayerInstance.resumeTrack(0); } catch (e) {}
               } catch (e) {}
@@ -1381,7 +1271,7 @@ async function init() {
       try { if (player && typeof (player.setScreenScale) === 'function') player.setScreenScale && player.setScreenScale(1); } catch (e) {}
     } catch (e) {}
 
-    try { await startGame(); } catch (e) { console.warn('restartGame: startGame failed', e); }
+    try { await startGame(); } catch (e) {}
   }
 
   let controlsEnabled = false;
@@ -1430,14 +1320,14 @@ async function init() {
         const handler = (gameplay as any)._handler;
         const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : false;
         if (onPattern && player && player.onGround) {
-          L.debug && L.debug('Suppressing GameOver: player still on pattern', { finalReason, worldX: player.worldX, onPattern });
+
           return;
         }
       }
     } catch (e) {}
 
     gameOver = true;
-    L.log('GameOver triggered:', finalReason ?? gameOverQueuedReason ?? 'unknown');
+
 
     try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
 
@@ -1458,7 +1348,7 @@ async function init() {
           const handler = (gameplay as any)._handler;
           const onPattern = handler && handler.isOnPattern ? handler.isOnPattern(player.worldX) : true;
           if (onPattern) {
-            L.log('GameOver canceled (player returned to pattern):', reason);
+
             return;
           }
         }
@@ -1518,7 +1408,7 @@ async function init() {
 
   updateScale();
 
-  try { await startGame(); } catch (e) { console.warn('startGame failed at init', e); }
+  try { await startGame(); } catch (e) {}
   try { controlsEnabled = true; } catch (e) {}
 
   function onResize() {
