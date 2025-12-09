@@ -2,7 +2,7 @@ import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Text
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { createGameplay } from './gameplay';
-import { loadTexture, loadSpriteStrip, splitSpriteStrip, splitSpriteStripFixed, loadIndexedFrames, loadSpriteStripAsSeparateTextures } from './assetLoader';
+import { loadTexture,  loadGameAssets } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
 import makeDanger1 from './patterns/Danger1';
 import makeDanger2 from './patterns/Danger2';
@@ -30,12 +30,17 @@ const CHARACTER_SCALE_FACTOR = 0.6;
 const app = new Application();
 
 async function init() {
+  // 1. Init Pixi App trước
   await (app as any).init({
     width: WIDTH,
     height: HEIGHT,
     background: 0x1099bb,
     resizeTo: window
   });
+
+  // 2. THÊM DÒNG NÀY NGAY LẬP TỨC!
+  // Nạp toàn bộ assets (Base64) vào bộ nhớ trước khi làm bất cứ điều gì khác
+  await loadGameAssets();
 
   const canvas = app.canvas as HTMLCanvasElement;
   canvas.style.display = 'block';
@@ -697,6 +702,8 @@ async function init() {
     try {
       // load Spine visuals and attach to player
       try { await reloadSpineAnimations(); } catch (e) { console.warn('reloadSpineAnimations failed', e); }
+      // register & load all images and sounds (webpack will inline the files)
+      try { await loadGameAssets(); } catch (e) { console.warn('loadGameAssets failed', e); }
       // initialize sound controller and allow resume on gesture
       try { SoundController.init('/Assets/Sounds/'); SoundController.resumeOnUserGesture(); } catch (e) {}
       // try to start background audio (may be blocked until user gesture)

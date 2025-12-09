@@ -1,4 +1,19 @@
+import { Assets } from 'pixi.js';
+
+// Import sounds so the bundler inlines or bundles them for single-file builds
+import bgSound from '../../Assets/Sounds/13. option2. Game running.mp3';
+import flySound from '../../Assets/Sounds/15. option2. Fly.MP3';
+import plusSound from '../../Assets/Sounds/16. option1. Plus.mp3';
+import rockSound from '../../Assets/Sounds/18. option1. rock.MP3';
+
 export type SoundKeys = 'bg' | 'jump' | 'pickup' | 'hit';
+
+const SOUND_FILENAME_MAP: Record<string, string> = {
+  '13. option2. Game running.mp3': bgSound,
+  '15. option2. Fly.MP3': flySound,
+  '16. option1. Plus.mp3': plusSound,
+  '18. option1. rock.MP3': rockSound,
+};
 
 class SoundController {
   private sounds: Record<SoundKeys, HTMLAudioElement | null> = {
@@ -29,21 +44,35 @@ class SoundController {
   init(basePath = '/Assets/Sounds/') {
     try {
       this.basePath = basePath || this.basePath;
-      // create audio elements (do not autoplay without user interaction in some browsers)
-      this.sounds.bg = new Audio(basePath + '13. option2. Game running.mp3');
+
+      // Register sounds with PIXI Assets (this makes them available in the asset system
+      // and also ensures bundlers like webpack will include them when imported above).
+      try {
+        Assets.add({ alias: 'bg', src: bgSound });
+        Assets.add({ alias: 'jump', src: flySound });
+        Assets.add({ alias: 'pickup', src: plusSound });
+        Assets.add({ alias: 'hit', src: rockSound });
+      } catch (e) {
+        // Some environments may not expose Assets.add; that's ok — we'll still use the imported URIs.
+      }
+
+      // Create audio elements from imported data (these will be data URIs or packed paths
+      // when built as a single-file playable). Using the imported variables avoids
+      // constructing file-system paths which the browser cannot access.
+      this.sounds.bg = new Audio(bgSound);
       this.sounds.bg.loop = true;
       this.sounds.bg.preload = 'auto';
 
-      this.sounds.jump = new Audio(basePath + '15. option2. Fly.MP3');
+      this.sounds.jump = new Audio(flySound);
       this.sounds.jump.preload = 'auto';
 
-      this.sounds.pickup = new Audio(basePath + '16. option1. Plus.mp3');
+      this.sounds.pickup = new Audio(plusSound);
       this.sounds.pickup.preload = 'auto';
 
-      this.sounds.hit = new Audio(basePath + '18. option1. rock.MP3');
+      this.sounds.hit = new Audio(rockSound);
       this.sounds.hit.preload = 'auto';
     } catch (e) {
-      // swallow errors - file paths may vary on some deployments
+      // swallow errors - building targets may vary
       console.warn('SoundController.init failed to create audio elements', e);
     }
   }
@@ -124,7 +153,10 @@ class SoundController {
           this.lastOneOff = null;
         }
       } catch (e) {}
-      const src = new Audio(this.basePath + filename);
+      // Prefer the imported/bundled sound if available, otherwise fall back to basePath
+      const mapped = SOUND_FILENAME_MAP[filename];
+      const srcPath = mapped || (this.basePath + filename);
+      const src = new Audio(srcPath);
       src.preload = 'auto';
       src.volume = 0.9;
       this.lastOneOff = src;
