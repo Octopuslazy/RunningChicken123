@@ -65,13 +65,13 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     y: sprite.y,
     vy: 0,
     onGround: true,
-    maxJumps: 2,
-    jumpsLeft: 2,
+    maxJumps: 2, // Tăng từ 2 lên 3 để có thể nhảy nhiều hơn
+    jumpsLeft: 2, // Tăng từ 2 lên 3
     desiredScreenScale: screenScale,
     // hold-to-extend jump state
     // how long (seconds) additional jump hold extends the ascent
-    // default allow 0.25s of extended ascent
-    maxJumpHoldTime: 0.25,
+    // Tăng thời gian giữ jump để nhảy cao hơn và lâu hơn
+    maxJumpHoldTime: 0.45, // Tăng từ 0.25 lên 0.45 giây
     jumpHoldTime: 0,
     holdingJump: false,
     jump() {
@@ -105,28 +105,29 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
             const parent: any = (this.sprite as any).parent;
             const tex = Texture.from('/Assets/_arts/effect_double jump.png');
 
-            // main effect (original size)
+            // main effect (original size) - tăng kích thước để nổi bật hơn
             const eff = new Sprite(tex);
             eff.anchor.set(0.5, 0.5);
-            eff.x = this.worldX - 40;
-            eff.y = this.y;
+            eff.x = this.worldX - 45; // Di chuyển xa hơn để thấy rõ
+            eff.y = this.y - 10; // Nâng cao hơn để phù hợp với character cao hơn
             eff.alpha = 1;
+            eff.scale.set(1.2, 1.2); // Tăng kích thước lên 20%
 
-            // second effect (scaled 0.6) placed slightly further back
+            // second effect (scaled 0.8) placed slightly further back
             const eff2 = new Sprite(tex);
             eff2.anchor.set(0.5, 0.5);
-            eff2.x = this.worldX - 60;
-            eff2.y = this.y + 4;
+            eff2.x = this.worldX - 70; // Xa hơn
+            eff2.y = this.y - 5; // Cao hơn
             eff2.alpha = 0.95;
-            eff2.scale.set(0.6, 0.6);
+            eff2.scale.set(0.8, 0.8); // Tăng từ 0.6 lên 0.8
 
-            // third effect (scaled 0.3) placed further back for depth
+            // third effect (scaled 0.5) placed further back for depth
             const eff3 = new Sprite(tex);
             eff3.anchor.set(0.5, 0.5);
-            eff3.x = this.worldX - 80;
-            eff3.y = this.y + 6;
+            eff3.x = this.worldX - 95; // Xa hơn nữa
+            eff3.y = this.y; // Giữ ở mức character
             eff3.alpha = 0.9;
-            eff3.scale.set(0.3, 0.3);
+            eff3.scale.set(0.5, 0.5); // Tăng từ 0.3 lên 0.5
 
             // try to insert effects behind the player sprite if possible
             if (parent && typeof parent.addChild === 'function') {
@@ -145,15 +146,15 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
               } catch (e) { parent.addChild(eff3); parent.addChild(eff2); parent.addChild(eff); }
             }
 
-            // remove effects after a short time
-            setTimeout(() => { try { eff.parent && eff.parent.removeChild(eff); } catch (e) {} }, 420);
-            setTimeout(() => { try { eff2.parent && eff2.parent.removeChild(eff2); } catch (e) {} }, 520);
-            setTimeout(() => { try { eff3.parent && eff3.parent.removeChild(eff3); } catch (e) {} }, 620);
+            // remove effects after a longer time để tạo cảm giác nổi bật hơn
+            setTimeout(() => { try { eff.parent && eff.parent.removeChild(eff); } catch (e) {} }, 650); // Tăng từ 420 lên 650ms
+            setTimeout(() => { try { eff2.parent && eff2.parent.removeChild(eff2); } catch (e) {} }, 750); // Tăng từ 520 lên 750ms
+            setTimeout(() => { try { eff3.parent && eff3.parent.removeChild(eff3); } catch (e) {} }, 850); // Tăng từ 620 lên 850ms
 
             // Only perform the 360° spin when this is the 'double-jump' (i.e. last available mid-air jump)
             if (prevJumpsLeft === 1) {
               try {
-                const spinDuration = 520; // ms
+                const spinDuration = 650; // Tăng từ 520 lên 650ms để phù hợp với effects lâu hơn
                 const spriteAny: any = this.sprite;
                 // ensure rotation pivot is the visual center of the sprite/container
                 let prevPivot: any = { x: 0, y: 0 };
@@ -231,8 +232,8 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     update(deltaSec: number, scroll: number, speed: number) {
       // variable jump logic: while holding and within max hold time, apply reduced gravity
       if ((this as any).holdingJump && (this as any).jumpHoldTime < (this as any).maxJumpHoldTime && this.vy < 0) {
-        // reduce gravity effect during hold so ascent is extended
-        this.vy += (gravity * 0.45) * deltaSec;
+        // reduce gravity effect during hold so ascent is extended - giảm gravity nhiều hơn để nổi lâu hơn
+        this.vy += (gravity * 0.25) * deltaSec; // Giảm từ 0.45 xuống 0.25 để character nổi lâu hơn
         (this as any).jumpHoldTime += deltaSec;
       } else {
         this.vy += gravity * deltaSec;
