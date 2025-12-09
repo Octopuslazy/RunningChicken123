@@ -5,6 +5,7 @@ import bgSound from '../../Assets/Sounds/13. option2. Game running.mp3';
 import flySound from '../../Assets/Sounds/15. option2. Fly.MP3';
 import plusSound from '../../Assets/Sounds/16. option1. Plus.mp3';
 import rockSound from '../../Assets/Sounds/18. option1. rock.MP3';
+import nanSound from '../../Assets/Sounds/nan.mp3';
 
 export type SoundKeys = 'bg' | 'jump' | 'pickup' | 'hit';
 
@@ -13,6 +14,7 @@ const SOUND_FILENAME_MAP: Record<string, string> = {
   '15. option2. Fly.MP3': flySound,
   '16. option1. Plus.mp3': plusSound,
   '18. option1. rock.MP3': rockSound,
+  'nan.mp3': nanSound,
 };
 
 class SoundController {
