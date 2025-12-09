@@ -2,36 +2,21 @@ import { Assets, Texture, Rectangle } from 'pixi.js';
 
 declare const require: any;
 
-// --- 1. IMPORT & EXPORT RAW DATA (Quan trọng) ---
-// Chúng ta export các biến này để SpinePlayer dùng trực tiếp
+// --- 1. IMPORT RAW DATA ---
 import _chickenPng from '../Assets/Arts/anim/kfc_chicken.png';
 import _chickenAtlas from '../Assets/Arts/anim/kfc_chicken.atlas'; 
 import _chickenJson from '../Assets/Arts/anim/kfc_chicken.json';
 
+// Export dữ liệu thô
 export const RAW_SPINE_ASSETS = {
     png: _chickenPng,
     atlas: _chickenAtlas,
     json: _chickenJson
 };
 
-// --- Helper giải mã Base64 ---
-function decodeBase64ToText(dataUri: string): string {
-    if (!dataUri || !dataUri.startsWith('data:')) return dataUri;
-    try {
-        // Tách header data:text/plain;base64,
-        const base64 = dataUri.split(',')[1]; 
-        if (!base64) return '';
-        const str = atob(base64);
-        return decodeURIComponent(Array.prototype.map.call(str, (c: string) => {
-            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-    } catch (e) {
-        console.warn('Base64 decode warning', e);
-        return '';
-    }
-}
+export const FIXED_CHICKEN_ALIAS = 'fixed_chicken_tex';
 
-// --- Logic Load Assets ---
+// --- Webpack Context ---
 function importAll(r: any) {
     const images: Record<string, any> = {};
     r.keys().forEach((item: string) => {
@@ -50,17 +35,9 @@ function registerSmartAliases(sourceMap: any, baseFolder: string, loadList: stri
     const cleanFolder = baseFolder.replace('../', ''); 
     for (const fileNameWithExt of Object.keys(sourceMap)) {
         const src = sourceMap[fileNameWithExt]; 
-        const paths = [
-            fileNameWithExt, 
-            `${baseFolder}/${fileNameWithExt}`, 
-            `${cleanFolder}/${fileNameWithExt}`, 
-            `/${cleanFolder}/${fileNameWithExt}`
-        ];
-        
-        // Audio hint để tránh warning
+        const paths = [fileNameWithExt, `${baseFolder}/${fileNameWithExt}`, `${cleanFolder}/${fileNameWithExt}`, `/${cleanFolder}/${fileNameWithExt}`];
         const isAudio = fileNameWithExt.match(/\.(mp3|wav|ogg)$/i);
         const options = isAudio ? { format: isAudio[1].toLowerCase() } : {};
-
         for (const path of paths) {
              if (!Assets.cache.has(path)) Assets.add({ alias: path, src: src, ...options });
         }
@@ -72,18 +49,18 @@ export async function loadGameAssets() {
     console.log('Start loading assets...');
     const assetsToLoad: string[] = [];
 
-    // --- 1. SETUP SPINE (Chỉ cần đăng ký Texture để dùng chung nếu cần) ---
+    // --- 1. SETUP SPINE TEXTURE ---
     try {
-        // Chúng ta load texture này vào Cache để các thành phần khác (nếu có) dùng được
-        // Còn SpinePlayer sẽ dùng RAW_SPINE_ASSETS trực tiếp
-        Assets.add({ alias: 'kfc_chicken_image', src: _chickenPng });
-        await Assets.load('kfc_chicken_image');
+        // Nạp texture con gà vào Cache với tên cố định
+        // Dùng Assets.load để đảm bảo nó được upload lên GPU và có width/height > 0
+        Assets.add({ alias: FIXED_CHICKEN_ALIAS, src: _chickenPng });
+        const tex = await Assets.load(FIXED_CHICKEN_ALIAS);
         
-        // Giải mã Atlas Text để debug nếu cần
-        const atlasText = decodeBase64ToText(_chickenAtlas);
-        // Lưu text vào cache để fallback
-        Assets.cache.set('kfc_chicken_atlas', atlasText);
-        
+        if (tex) {
+            console.log(`Spine Texture Ready: ${tex.width}x${tex.height}`);
+        } else {
+            console.error("Spine Texture failed to load!");
+        }
     } catch (e) { console.warn('Spine setup error', e); }
 
     // --- 2. LOAD ARTS & SOUNDS ---

@@ -2,7 +2,7 @@ import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Text
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { createGameplay } from './gameplay';
-import { loadTexture,  loadGameAssets } from './assetLoader'; // Import hàm loadGameAssets
+import { loadTexture, loadGameAssets, RAW_SPINE_ASSETS } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
 import makeDanger1 from './patterns/Danger1';
 import makeDanger2 from './patterns/Danger2';
@@ -38,13 +38,10 @@ async function init() {
   // --- SỬA LỖI TẠI ĐÂY ---
   // BẮT BUỘC: Nạp toàn bộ tài nguyên (Spine, Ảnh, Nhạc) vào RAM trước tiên!
   // Nếu không có dòng này, mọi lệnh loadTexture hay SpinePlayer ở dưới đều sẽ gây lỗi CORS.
-  try {
-      console.log("Initializing assets...");
+  
       await loadGameAssets();
       console.log("Assets initialized.");
-  } catch (e) {
-      console.error("Critical Error: Failed to load game assets", e);
-  }
+  
   // -----------------------
 
   const canvas = app.canvas as HTMLCanvasElement;
@@ -103,6 +100,7 @@ async function init() {
       cityLayer = { container, update: updateCity, tileWidth: tileW };
     }
   } catch (e) { cityLayer = null; }
+  
 
   // Parallax cloud layers
   let cloudBigLayer: { container: import('pixi.js').Container; update: (scroll: number) => void; tileWidth: number; } | null = null;
@@ -202,17 +200,39 @@ async function init() {
   const playerRadius = 28;
   const PLAYER_SPAWN_LIFT = 80;
   let player: any = null;
-  const charTex = await loadTexture('/Assets/_arts/char.png');
-    if (charTex) {
-    L.log('Using char.png for player texture');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: charTex as any, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
-  } else {
-    L.log('char.png not found; falling back to graphics');
-    player = createCharacter({ PLAYER_X, playerRadius, groundY: groundY - PLAYER_SPAWN_LIFT, texture: undefined, jumpSpeed: 1400, gravity: 4000, screenScale: 0.8 * CHARACTER_SCALE_FACTOR });
-  }
+  
+  // Luôn tạo nhân vật với graphics fallback trước
+  console.log('Creating player character...');
+  player = createCharacter({ 
+    PLAYER_X, 
+    playerRadius, 
+    groundY: groundY - PLAYER_SPAWN_LIFT, 
+    texture: undefined, // Dùng graphics trước
+    jumpSpeed: 1400, 
+    gravity: 4000, 
+    screenScale: 0.8 * CHARACTER_SCALE_FACTOR 
+  });
 
   player.worldX = PLAYER_X;
+  player.y = groundY - PLAYER_SPAWN_LIFT - playerRadius;
+  
+  // Đảm bảo sprite visible và có alpha
+  player.sprite.visible = true;
+  player.sprite.alpha = 1;
+  player.sprite.x = PLAYER_X;
+  player.sprite.y = player.y;
+  
   world.addChild(player.sprite);
+  console.log('Player created and added to world:', { 
+    x: player.sprite.x, 
+    y: player.sprite.y, 
+    visible: player.sprite.visible,
+    alpha: player.sprite.alpha,
+    worldX: player.worldX,
+    worldY: world.y,
+    groundY: groundY,
+    actualGroundY: groundY - PLAYER_SPAWN_LIFT
+  });
   try {
     if (player && typeof player.jump === 'function') {
       const _origJump = player.jump.bind(player);
@@ -254,33 +274,254 @@ async function init() {
   let spinePlayerInstance: any = null;
   let defaultAnim: string | null = null;
 
+ 
   async function reloadSpineAnimations() {
     try {
-      try {
-        if (spinePlayerInstance && spinePlayerInstance.view) {
-          try { world.removeChild(spinePlayerInstance.view); } catch (e) {}
-        }
-      } catch (e) {}
-
-      // SpinePlayer sẽ dùng dữ liệu đã load trong loadGameAssets (ở đầu hàm init)
+      console.log('🦴 Starting Spine animation reload...');
+      
+      if (spinePlayerInstance?.view) {
+        console.log('🗑️ Removing existing spine instance');
+        try { world.removeChild(spinePlayerInstance.view); } catch(e){}
+      }
+      
       const sp = new SpinePlayer('kfc_chicken');
-      await sp.load('/Assets/Arts/anim/');
-      const avail = sp.getAnimations();
-      sp.setScale(1.5 * CHARACTER_SCALE_FACTOR);
+      console.log('📦 SpinePlayer instance created');
+      
+      // Truyền RAW_SPINE_ASSETS vào hàm load
+      console.log('🔄 Loading Spine assets with RAW_SPINE_ASSETS...');
+      await sp.load('/Assets/Arts/anim/', RAW_SPINE_ASSETS);
+      console.log('✅ Spine load completed. View exists:', !!sp.view, 'Spine exists:', !!sp.spine); 
+      
+      // Kiểm tra view trước khi dùng
+      if (!sp.view) {
+        throw new Error('SpinePlayer.view is null after load!');
+      }
+      
+      console.log('👁️ View info: type=' + sp.view.constructor.name + ' x=' + sp.view.x + ' y=' + sp.view.y + ' visible=' + sp.view.visible + ' children=' + (sp.view.children?.length || 0));
+      
+      // Tăng scale để thấy rõ hơn  
+      const finalScale = 3.0 * CHARACTER_SCALE_FACTOR; // Tăng lên 3.0
+      console.log('📐 Setting scale to:', finalScale);
+      sp.setScale(finalScale);
       sp.setPosition(player.worldX, player.y);
-
-      try { world.removeChild(player.sprite); } catch (e) {}
+      
+      // Đảm bảo sprite cũ bị loại bỏ
+      console.log('🗑️ Removing old player sprite...');
+      try { world.removeChild(player.sprite); } catch(e){}
+      
+      // Gán sprite mới và thêm vào world
+      console.log('🎮 Assigning spine view to player...');
       player.sprite = sp.view;
-      (player.sprite as any).interactive = true;
-      (player.sprite as any).buttonMode = true;
-      player.sprite.on && player.sprite.on('pointerdown', () => {
-        try { if (!controlsEnabled) return; (player as any).jump(); } catch (e) {}
-      });
+      player.sprite.visible = true;
+      player.sprite.alpha = 1;
+      player.sprite.x = player.worldX;
+      player.sprite.y = player.y;
+      player.sprite.zIndex = 5000;
+      
+        console.log('🌍 Adding to world...');
       world.addChild(player.sprite);
+      world.sortableChildren = true;
+      
       spinePlayerInstance = sp;
-      L.log('SpinePlayer loaded — animations:', avail);
-    } catch (e) {
-      console.warn('SpinePlayer reload failed:', e);
+      console.log('✅ Spine added! World children:', world.children.length);
+      
+      // DEBUG: Kiểm tra chi tiết Spine view
+      console.log('🔍 Spine View Debug:');
+      console.log('  - Constructor:', sp.view.constructor.name);
+      console.log('  - Bounds:', sp.view.getBounds ? sp.view.getBounds() : 'no getBounds');
+      console.log('  - LocalBounds:', sp.view.getLocalBounds ? sp.view.getLocalBounds() : 'no getLocalBounds');
+      console.log('  - Transform:', { x: sp.view.x, y: sp.view.y, scaleX: sp.view.scale.x, scaleY: sp.view.scale.y });
+      const slotsWithAttachments = sp.spine?.skeleton?.slots?.filter((slot: any) => slot.attachment).length || 0;
+      console.log('  - Skeleton slots visible:', slotsWithAttachments);
+      
+      // CRITICAL DEBUG: Check if any slots have attachments
+      if (slotsWithAttachments === 0) {
+        console.error('❌ NO SLOTS HAVE ATTACHMENTS! This is why Spine is invisible!');
+        console.log('  - Total slots:', sp.spine?.skeleton?.slots?.length || 0);
+        console.log('  - Slot details:', sp.spine?.skeleton?.slots?.map((slot: any, i: number) => 
+          `${i}: ${slot?.bone?.data?.name || 'unknown'} attachment: ${!!slot?.attachment}`
+        ).join(', '));
+      } else {
+        console.log('✅ SLOTS HAVE ATTACHMENTS - Spine should be visible!');
+      }
+      
+      // FORCE render update
+      try {
+        if (sp.spine && sp.spine.update) {
+          sp.spine.update(0.016); // Force 60fps update
+          console.log('⚙️ Forced spine update after add');
+        }
+      } catch (e) { console.warn('Force update failed:', e); }
+      
+      // EMERGENCY FALLBACK: If Spine fails completely, create a simple sprite
+      try {
+        const bounds = sp.view.getBounds ? sp.view.getBounds() : null;
+        const hasSize = bounds && (bounds.width > 0 || bounds.height > 0);
+        
+        console.log('🔍 Spine bounds check:', bounds, 'hasSize:', hasSize);
+        
+        if (!hasSize) {
+          console.log('🚨 SPINE HAS NO SIZE - Creating emergency fallback...');
+          
+          // Create emergency chicken sprite from texture atlas
+          const emergencySprite = new Graphics();
+          emergencySprite.rect(0, 0, 60, 80).fill({ color: 0xFFD700 }); // Gold chicken shape
+          emergencySprite.rect(10, 10, 20, 20).fill({ color: 0xFF4500 }); // Head
+          emergencySprite.rect(15, 15, 5, 5).fill({ color: 0x000000 }); // Eye
+          emergencySprite.rect(12, 22, 8, 3).fill({ color: 0xFF8C00 }); // Beak
+          emergencySprite.pivot.set(30, 40); // Center pivot
+          
+          console.log('🐔 Created emergency chicken sprite');
+          
+          // Replace spine view with emergency sprite
+          try { world.removeChild(player.sprite); } catch(e){}
+          player.sprite = emergencySprite;
+          player.sprite.visible = true;
+          player.sprite.alpha = 1;
+          player.sprite.x = player.worldX;
+          player.sprite.y = player.y;
+          player.sprite.zIndex = 5000;
+          world.addChild(player.sprite);
+          
+          console.log('🚑 Emergency sprite activated as fallback');
+        } else {
+          console.log('✅ Spine has size:', bounds?.width + 'x' + bounds?.height);
+        }
+      } catch (e) {
+        console.warn('Emergency fallback failed:', e);
+      }      // Chạy animation mặc định
+      try { 
+        console.log('🎬 Available animations:', sp.getAnimations());
+        console.log('🎬 Starting run animation...');
+        const playResult = sp.play('run', true, 0);
+        console.log('🎬 Play result:', playResult);
+        
+        // Kiểm tra animation state
+        if (sp.spine && sp.spine.state) {
+          const current = sp.spine.state.getCurrent(0);
+          console.log('🎬 Current animation on track 0:', current ? current.animation.name : 'none');
+        }
+      } catch (e) { 
+        console.warn('❌ Failed to start run animation:', e);
+      }
+      
+      console.log('Spine character loaded and added to world:', { 
+        x: player.sprite.x, 
+        y: player.sprite.y, 
+        visible: player.sprite.visible,
+        alpha: player.sprite.alpha,
+        spineLoaded: !!sp.spine,
+        scale: player.sprite.scale.x,
+        worldChildren: world.children.length,
+        screenX: player.sprite.x + world.x,
+        screenY: player.sprite.y + world.y
+      });
+      
+      // FORCE nhân vật lên vị trí có thể nhìn thấy
+      const visibleY = HEIGHT / 2; // Giữa màn hình
+      console.log('🎯 Force positioning player at visible location');
+      console.log('Before move - Y:', player.sprite.y, 'HEIGHT:', HEIGHT);
+      
+      player.y = visibleY;
+      player.sprite.y = visibleY;
+      player.sprite.x = player.worldX;
+      
+      // Đảm bảo Spine sprite có zIndex cao
+      player.sprite.zIndex = 5000;
+      world.sortableChildren = true;
+      
+      console.log('After move - Y:', player.sprite.y, 'screenY:', player.sprite.y + (world.y || 0));
+      console.log('🎯 Player final position: x=' + player.sprite.x + ' y=' + player.sprite.y + ' screenX=' + (player.sprite.x + (world.x || 0)) + ' screenY=' + (player.sprite.y + (world.y || 0)) + ' visible=' + player.sprite.visible + ' alpha=' + player.sprite.alpha + ' zIndex=' + player.sprite.zIndex);
+      
+      // FINAL DEBUG: Check skeleton render state
+      if (sp.spine && sp.spine.skeleton) {
+        const skeleton = sp.spine.skeleton;
+        console.log('💀 Final Skeleton State:');
+        console.log('  - Bones active:', skeleton.bones?.length || 0);
+        const attachedSlots = skeleton.slots?.filter((slot: any) => slot.attachment).length || 0;
+        console.log('  - Slots with attachments:', attachedSlots);
+        console.log('  - Skeleton alpha:', skeleton.a || skeleton.alpha);
+        console.log('  - Skeleton color:', skeleton.color);
+        console.log('  - Root bone pos:', skeleton.getRootBone ? { x: skeleton.getRootBone().x, y: skeleton.getRootBone().y } : 'no root');
+        console.log('  - Skeleton bounds:', { x: skeleton.x, y: skeleton.y });
+        
+        // EMERGENCY: If no attachments, try multiple approaches
+        if (attachedSlots === 0) {
+          console.log('🆘 EMERGENCY: Trying to restore slot attachments...');
+          
+          // Method 1: Try default skin
+          try {
+            if (skeleton.data && skeleton.data.defaultSkin) {
+              console.log('📋 Method 1: Found default skin, trying to apply...');
+              skeleton.setSkin(skeleton.data.defaultSkin);
+              skeleton.setSlotsToSetupPose();
+              console.log('✅ Emergency skin restore attempted');
+            }
+          } catch (e) {
+            console.warn('❌ Method 1 failed:', e);
+          }
+          
+          // Method 2: Manual attachment restoration
+          try {
+            console.log('📋 Method 2: Manual attachment restoration...');
+            if (skeleton.slots && skeleton.data && skeleton.data.defaultSkin) {
+              const skin = skeleton.data.defaultSkin;
+              skeleton.slots.forEach((slot: any, i: number) => {
+                if (slot && !slot.attachment && slot.data) {
+                  try {
+                    const slotData = slot.data;
+                    if (slotData.attachmentName) {
+                      const attachment = skin.getAttachment ? skin.getAttachment(slotData.index, slotData.attachmentName) : null;
+                      if (attachment) {
+                        slot.attachment = attachment;
+                        console.log(`🔗 Restored slot ${i} (${slotData.name}) attachment`);
+                      }
+                    }
+                  } catch (e) {}
+                }
+              });
+            }
+          } catch (e) {
+            console.warn('❌ Method 2 failed:', e);
+          }
+          
+          // Method 3: Force first skin if available
+          try {
+            console.log('📋 Method 3: Force first available skin...');
+            if (skeleton.data && skeleton.data.skins && skeleton.data.skins.length > 0) {
+              const firstSkin = skeleton.data.skins[0];
+              console.log('🎨 Using first skin:', firstSkin.name);
+              skeleton.setSkin(firstSkin);
+              skeleton.setSlotsToSetupPose();
+            }
+          } catch (e) {
+            console.warn('❌ Method 3 failed:', e);
+          }
+          
+          // Final check
+          const newAttached = skeleton.slots?.filter((slot: any) => slot.attachment).length || 0;
+          console.log(`🔍 After emergency restore: ${newAttached} slots now have attachments`);
+        }
+      }
+    } catch (e) { 
+      console.warn('Spine load failed, keeping original character:', e);
+      // Nếu Spine fail, tạo sprite đỏ to để debug
+      try {
+        console.log('Spine failed, creating debug sprite');
+        const debugSprite = new Graphics();
+        debugSprite.circle(0, 0, 40).fill({ color: 0x00ff00 }); // Vòng tròn xanh lá
+        debugSprite.x = player.worldX;
+        debugSprite.y = player.y;
+        debugSprite.zIndex = 6000;
+        
+        try { world.removeChild(player.sprite); } catch(e){}
+        player.sprite = debugSprite;
+        world.addChild(player.sprite);
+        world.sortableChildren = true;
+        console.log('Added green debug sprite as fallback');
+      } catch (e2) {
+        console.warn('Failed to create debug sprite:', e2);
+      }
     }
   }
 
@@ -319,6 +560,7 @@ async function init() {
   }
 
   try {
+    // Pre-load các texture cần thiết
     try { await loadTexture('/Assets/_arts/bg_1_groundmid.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_groundleft.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_groundright.png'); } catch (e) {}
@@ -348,143 +590,8 @@ async function init() {
     try { await loadTexture('/Assets/_arts/score.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_standee1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/gameover.jpg'); } catch (e) {}
-
-    const handler = (gameplay as any)._handler;
-    try { handler.toggleHitboxes(); } catch (e) {}
-    try {
-      if (player && handler && (player as any).getGroundY === undefined) {
-        (player as any).getGroundY = (wx: number) => {
-          try { return handler.getSurfaceYAt(wx); } catch (e) { return groundY; }
-        };
-      }
-    } catch (e) {}
-    window.addEventListener('keydown', (ev) => {
-      if (ev.code === 'KeyH') {
-        try { 
-          const newState = handler.toggleHitboxes();
-          L.log('Pattern hitbox debug:', newState);
-        } catch (e) {}
-      }
-    });
-
-    try {
-      const patterns: any[] = [];
-      const NUM_PATTERNS = 200;
-      const PIT_WIDTH = 300;
-
-      const PATTERN_LENGTH = 750;
-      const PROB_USE_DANGER = 0.70;
-      const PROB_USE_DANGER_AFTER = 0.85;
-      const DANGER_WEIGHTS = { d1: 0.3, d2: 0.2, d3: 0.3, d4: 0.2, d5: 0.3 };
-      const DANGER3_LENGTH = 300;
-      const DANGER4_LENGTH = 1200;
-      const DISTANCE_NORMAL_START = 4500;
-
-      let cursorX = 0;
-      for (let i = 0; i < NUM_PATTERNS; i++) {
-        const length = PATTERN_LENGTH;
-        const probUseDangerNow = (cursorX >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
-        let factory: any = null;
-        if (Math.random() < probUseDangerNow) {
-          const r = Math.random();
-          const includeD5 = cursorX >= DISTANCE_NORMAL_START;
-          const total = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4 + (includeD5 ? DANGER_WEIGHTS.d5 : 0)) || 1;
-          const t1 = DANGER_WEIGHTS.d1 / total;
-          const t2 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2) / total;
-          const t3 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3) / total;
-          const t4 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4) / total;
-          if (r < t1) { factory = makeDanger1({ leftEnd: true, rightEnd: true, length }); }
-          else if (r < t2) { factory = makeDanger2({ leftEnd: true, rightEnd: true, length }); }
-          else if (r < t3) { factory = makeDanger4({ leftEnd: true, rightEnd: true, length: DANGER4_LENGTH }); }
-          else if (r < t4) { factory = makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH }); }
-          else { factory = makeDanger5({ leftEnd: true, rightEnd: true, length }); }
-        } else {
-          factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
-        }
-
-        const chosenFactory = factory;
-        const factoryToUse = (startX2: number) => {
-          try {
-            const pd = chosenFactory(startX2);
-            if (pd && pd.difficulty === 'MEDIUM' && cursorX < DISTANCE_NORMAL_START) {
-              return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
-            }
-            return pd;
-          } catch (e) {
-            return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
-          }
-        };
-
-        const p = handler.addPattern(factoryToUse, cursorX);
-        patterns.push(p);
-
-        try {
-          const SPAWN_CHANCE = 0.25;
-          if (i > 0 && Math.random() < SPAWN_CHANCE) {
-            const ITEM_COUNT = 3 + Math.floor(Math.random() * 4);
-            const itemType = Math.floor(Math.random() * 7);
-            const texPath = `/Assets/_arts/obj_${itemType}.png`;
-            const tex = Texture.from(texPath);
-            const visualLengthLocal = (() => { try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; } })();
-            if (visualLengthLocal > 120) {
-              const padding = 40;
-              const baseXLocal = padding + Math.floor(Math.random() * Math.max(1, Math.floor(visualLengthLocal - padding * 2)));
-              const spacing = Math.min(72, Math.max(40, Math.floor(visualLengthLocal / (ITEM_COUNT + 1))));
-              const heightAbove = 300 + Math.floor(Math.random() * 301);
-              for (let ii = 0; ii < ITEM_COUNT; ii++) {
-                try {
-                  const prefab = new Pickup(itemType, tex as any);
-                  prefab.x = baseXLocal + ii * spacing;
-                  prefab.y = -heightAbove;
-                  prefab.zIndex = 1200;
-                  p.container.addChild(prefab);
-                  pickups.push(prefab);
-                } catch (e) {}
-              }
-            }
-          }
-        } catch (e) {}
-
-        let visualLength = p && p.container ? (() => {
-          try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; }
-        })() : (p ? p.length : length);
-
-        if (i < NUM_PATTERNS - 1) {
-          try { (gameplay as any).getPits().push({ x: cursorX + visualLength, width: PIT_WIDTH }); } catch (e) {}
-        }
-
-        cursorX += visualLength;
-        if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
-      }
-
-      try {
-        const p1 = patterns.length > 0 ? patterns[0] : null;
-        if (p1 && p1.container && player) {
-          const startX1 = 0;
-          const visualLength = p1 && p1.container ? (() => { try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; } })() : (p1 ? p1.length : 700);
-          const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
-          const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
-          player.worldX = targetWorldX;
-          try {
-            const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
-            player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
-          } catch (e) {
-            player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
-          }
-          player.vy = 0;
-          player.onGround = true;
-          try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
-          try { player.sprite.y = player.y; } catch (e) {}
-        }
-      } catch (e) {}
-      try { 
-        try { world.removeChild(player.sprite); } catch (e) {}
-        world.addChild(player.sprite);
-        L.log('Player repositioned on pattern:', { worldX: player.worldX, y: player.y, spriteY: player.sprite.y });
-      } catch (e) {}
-
-    } catch (e) { console.warn('Failed to spawn repeated patterns', e); }
-  } catch (e) { console.warn('Pattern spawn failed', e); }
+    // try { await loadTexture('/Assets/Arts/anim/kfc_chicken.png'); } catch (e) {}
+  } catch (e) { console.warn('Texture preload failed', e); }
 
   let spaceHeld = false;
   let pointerHeld = false;
@@ -534,9 +641,181 @@ async function init() {
 
   async function startGame() {
     try {
-      // Vì assets đã được load ở init(), ta không cần gọi loadGameAssets nữa.
-      // Nhưng để chắc chắn SpinePlayer có dữ liệu, ta gọi reloadSpineAnimations
-      try { await reloadSpineAnimations(); } catch (e) { console.warn('reloadSpineAnimations failed', e); }
+      // Khởi tạo gameplay trước
+      try {
+        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
+        try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
+      } catch (e) { console.warn('createGameplay failed', e); }
+
+      // Tạo patterns sau khi đã có gameplay
+      try {
+        const handler = (gameplay as any)._handler;
+        console.log('Starting pattern creation, handler:', !!handler);
+        const patterns: any[] = [];
+        const NUM_PATTERNS = 200;
+        const PIT_WIDTH = 300;
+
+        const PATTERN_LENGTH = 750;
+        const PROB_USE_DANGER = 0.70;
+        const PROB_USE_DANGER_AFTER = 0.85;
+        const DANGER_WEIGHTS = { d1: 0.3, d2: 0.2, d3: 0.3, d4: 0.2, d5: 0.3 };
+        const DANGER3_LENGTH = 300;
+        const DANGER4_LENGTH = 1200;
+        const DISTANCE_NORMAL_START = 4500;
+
+        let cursorX = 0;
+        for (let i = 0; i < NUM_PATTERNS; i++) {
+          const length = PATTERN_LENGTH;
+          const probUseDangerNow = (cursorX >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
+          let factory: any = null;
+          if (Math.random() < probUseDangerNow) {
+            const r = Math.random();
+            const includeD5 = cursorX >= DISTANCE_NORMAL_START;
+            const total = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4 + (includeD5 ? DANGER_WEIGHTS.d5 : 0)) || 1;
+            const t1 = DANGER_WEIGHTS.d1 / total;
+            const t2 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2) / total;
+            const t3 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3) / total;
+            const t4 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4) / total;
+            if (r < t1) { factory = makeDanger1({ leftEnd: true, rightEnd: true, length }); }
+            else if (r < t2) { factory = makeDanger2({ leftEnd: true, rightEnd: true, length }); }
+            else if (r < t3) { factory = makeDanger4({ leftEnd: true, rightEnd: true, length: DANGER4_LENGTH }); }
+            else if (r < t4) { factory = makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH }); }
+            else { factory = makeDanger5({ leftEnd: true, rightEnd: true, length }); }
+          } else {
+            factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
+          }
+
+          const chosenFactory = factory;
+          const factoryToUse = (startX2: number) => {
+            try {
+              const pd = chosenFactory(startX2);
+              if (pd && pd.difficulty === 'MEDIUM' && cursorX < DISTANCE_NORMAL_START) {
+                return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
+              }
+              return pd;
+            } catch (e) {
+              return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
+            }
+          };
+
+          const p = handler.addPattern(factoryToUse, cursorX);
+          patterns.push(p);
+
+          try {
+            const SPAWN_CHANCE = 0.25;
+            if (i > 0 && Math.random() < SPAWN_CHANCE) {
+              const ITEM_COUNT = 3 + Math.floor(Math.random() * 4);
+              const itemType = Math.floor(Math.random() * 7);
+              const texPath = `/Assets/_arts/obj_${itemType}.png`;
+              const tex = Texture.from(texPath);
+              const visualLengthLocal = (() => { try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; } })();
+              if (visualLengthLocal > 120) {
+                const padding = 40;
+                const baseXLocal = padding + Math.floor(Math.random() * Math.max(1, Math.floor(visualLengthLocal - padding * 2)));
+                const spacing = Math.min(72, Math.max(40, Math.floor(visualLengthLocal / (ITEM_COUNT + 1))));
+                const heightAbove = 300 + Math.floor(Math.random() * 301);
+                for (let ii = 0; ii < ITEM_COUNT; ii++) {
+                  try {
+                    const prefab = new Pickup(itemType, tex as any);
+                    prefab.x = baseXLocal + ii * spacing;
+                    prefab.y = -heightAbove;
+                    prefab.zIndex = 1200;
+                    p.container.addChild(prefab);
+                    pickups.push(prefab);
+                  } catch (e) {}
+                }
+              }
+            }
+          } catch (e) {}
+
+          let visualLength = p && p.container ? (() => {
+            try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; }
+          })() : (p ? p.length : length);
+
+          if (i < NUM_PATTERNS - 1) {
+            try { (gameplay as any).getPits().push({ x: cursorX + visualLength, width: PIT_WIDTH }); } catch (e) {}
+          }
+
+          cursorX += visualLength;
+          if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
+        }
+
+        console.log('Patterns created:', patterns.length);
+        
+        // Setup handler debug keys
+        try {
+          if (handler) {
+            try { handler.toggleHitboxes(); } catch (e) {}
+            try {
+              if (player && (player as any).getGroundY === undefined) {
+                (player as any).getGroundY = (wx: number) => {
+                  try { return handler.getSurfaceYAt(wx); } catch (e) { return groundY; }
+                };
+              }
+            } catch (e) {}
+            window.addEventListener('keydown', (ev) => {
+              if (ev.code === 'KeyH') {
+                try { 
+                  const newState = handler.toggleHitboxes();
+                  console.log('Pattern hitbox debug:', newState);
+                } catch (e) {}
+              }
+            });
+          }
+        } catch (e) {}
+
+        // Định vị lại player trên pattern đầu tiên
+        try {
+          const p1 = patterns.length > 0 ? patterns[0] : null;
+          console.log('First pattern:', !!p1, p1?.container?.y);
+          if (p1 && p1.container && player) {
+            const startX1 = 0;
+            const visualLength = p1 && p1.container ? (() => { try { const b = p1.container.getLocalBounds(); return b.width || p1.length; } catch (e) { return p1.length; } })() : (p1 ? p1.length : 700);
+            const withinP1 = (typeof player.worldX === 'number') && (player.worldX >= startX1 && player.worldX <= startX1 + visualLength);
+            const targetWorldX = withinP1 ? player.worldX : (startX1 + Math.min(100, Math.floor(visualLength / 4)));
+            player.worldX = targetWorldX;
+            try {
+              const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
+              player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
+            } catch (e) {
+              player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
+            }
+            player.vy = 0;
+            player.onGround = true;
+            try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+            try { 
+              player.sprite.x = player.worldX;
+              player.sprite.y = player.y; 
+            } catch (e) {}
+            
+            console.log('Player positioned on first pattern:', { 
+              worldX: player.worldX, 
+              y: player.y, 
+              patternY: p1.container.y,
+              spriteX: player.sprite.x,
+              spriteY: player.sprite.y,
+              spriteVisible: player.sprite.visible,
+              worldX_pos: world.x,
+              worldY_pos: world.y,
+              screenX: player.sprite.x + world.x,
+              screenY: player.sprite.y + world.y
+            });
+          } else {
+            console.warn('Cannot position player - missing pattern or player:', { p1: !!p1, container: !!p1?.container, player: !!player });
+          }
+        } catch (e) {
+          console.warn('Error positioning player:', e);
+        }
+      } catch (e) { console.warn('Failed to spawn patterns in startGame', e); }
+      
+      // Load Spine animation - DEBUG ENHANCED
+      try { 
+        console.log('=== STARTING SPINE LOAD ===');
+        await reloadSpineAnimations(); 
+        console.log('=== SPINE LOAD COMPLETED ===');
+      } catch (e) { 
+        console.error('=== SPINE LOAD FAILED ===', e); 
+      }
       
       try { SoundController.init('/Assets/Sounds/'); SoundController.resumeOnUserGesture(); } catch (e) {}
       
@@ -546,14 +825,6 @@ async function init() {
           backgroundStarted = true;
         }
       } catch (e) {}
-
-      try {
-        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
-        try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
-      } catch (e) { console.warn('createGameplay failed', e); }
-
-      // ... logic spawn pattern cũ đã được move lên init, hoặc giữ ở đây nếu muốn restart sạch.
-      // Hiện tại logic spawn pattern đang nằm lơ lửng ở init(), nên ta để nguyên.
       
     } catch (e) { console.warn('startGame failed', e); }
   }
@@ -564,6 +835,23 @@ async function init() {
   debug.y = 60;
   debug.visible = false;
   root.addChild(debug);
+  
+  // Thêm marker debug để thấy vị trí nhân vật
+  const playerMarker = new Graphics();
+  playerMarker.circle(0, 0, 50).fill({ color: 0xff0000, alpha: 0.7 });
+  playerMarker.visible = true;
+  playerMarker.zIndex = 10000;
+  world.addChild(playerMarker);
+  
+  // Update marker position theo nhân vật
+  const updatePlayerMarker = () => {
+    if (player && player.sprite) {
+      playerMarker.x = player.sprite.x;
+      playerMarker.y = player.sprite.y;
+      // Debug: Hiển thị vị trí trên marker
+      playerMarker.alpha = 0.5; // Làm marker trong suốt hơn để thấy nhân vật phía sau
+    }
+  };
   let debugEnabled = false;
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyD') {
@@ -612,12 +900,24 @@ async function init() {
   let currentScale = 1;
   const PLAYER_SPEED_FACTOR = 1.015;
 
-  app.ticker.add(() => {
+    app.ticker.add(() => {
     const deltaSec = (app.ticker as any).deltaMS / 1000;
 
     if (!gameplay) return;
-
-    const { scroll, speed } = gameplay.update(deltaSec);
+    
+    // CRITICAL: Update Spine animation in render loop
+    try {
+      if (spinePlayerInstance && spinePlayerInstance.spine) {
+        spinePlayerInstance.spine.update(deltaSec);
+        // Also ensure view is visible and positioned correctly
+        if (spinePlayerInstance.view && player.sprite === spinePlayerInstance.view) {
+          spinePlayerInstance.view.x = player.worldX;
+          spinePlayerInstance.view.y = player.y;
+        }
+      }
+    } catch (e) {
+      // Silent fail to avoid spam
+    }    const { scroll, speed } = gameplay.update(deltaSec);
 
     const playerMoveSpeed = speed * PLAYER_SPEED_FACTOR;
     if (!playerDead) {
@@ -809,6 +1109,17 @@ async function init() {
 
     try {
       if (spinePlayerInstance) {
+        // DEBUG: Log spine state every few seconds (throttled)
+        if (Math.floor(Date.now() / 5000) % 2 === 0 && Math.random() < 0.001) {
+          console.log('🔄 Spine runtime check:', {
+            exists: !!spinePlayerInstance.spine,
+            viewExists: !!spinePlayerInstance.view, 
+            inWorld: world.children.includes(spinePlayerInstance.view),
+            visible: spinePlayerInstance.view?.visible,
+            alpha: spinePlayerInstance.view?.alpha
+          });
+        }
+        
         let shouldShowRun = false;
         
         if (player.onGround) {
@@ -879,6 +1190,9 @@ async function init() {
     } catch (e) {}
 
     label.text = `Speed(cam): ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)}`;
+
+    // Update player marker
+    try { updatePlayerMarker(); } catch (e) {}
 
     try {
       const newThreshold = Math.floor(scroll / 100);

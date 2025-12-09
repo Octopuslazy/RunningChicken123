@@ -1,10 +1,8 @@
 import { Texture, Assets } from 'pixi.js';
 import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
-// Import dữ liệu thô trực tiếp
-import { RAW_SPINE_ASSETS } from './assetLoader';
 
-// Helper giải mã tại chỗ cho SpinePlayer
-function decodeBase64(dataUri: string): string {
+// Helper giải mã tại chỗ
+function safeDecodeBase64(dataUri: string): string {
     if (!dataUri || !dataUri.startsWith('data:')) return dataUri;
     try {
         const base64 = dataUri.split(',')[1];
@@ -35,265 +33,272 @@ export class SpinePlayer {
         this._pausedTrackScales = {};
     }
 
-    async load(basePath = '/Assets/Arts/anim/') {
-        // TEMPORARY: Disable spine loading if it keeps failing
-        // Uncomment this block to use static image instead of Spine animation
-        /*
-        console.log('Using static image fallback instead of Spine');
-        try {
-            const staticTexture = Texture.from(RAW_SPINE_ASSETS.png);
-            const staticSprite = new (await import('pixi.js')).Sprite(staticTexture);
-            staticSprite.anchor.set(0.5, 0.5);
-            this.spine = { state: { setAnimation: () => {}, timeScale: 1 } };
-            this.view = staticSprite;
-            this.available = new Set(['idle', 'run', 'jump']);
-            return this;
-        } catch (e) {
-            console.error('Even static fallback failed:', e);
-            return;
-        }
-        */
-
+    // --- SỬA LỖI TẠI ĐÂY: Thêm tham số rawAssets ---
+    async load(basePath = '/Assets/Arts/anim/', rawAssets: any = null) {
         const spineModule: any = spinePixi as any;
         const SpineCtor = spineModule?.Spine || spineModule?.default?.Spine || spineModule?.spine?.Spine;
         const spineNS = spineModule?.spine || spineModule?.default?.spine || spineModule;
 
-        if (!SpineCtor || !spineNS) {
-            console.error('Spine runtime missing. Available properties:', Object.keys(spineModule || {}));
-            throw new Error('Spine runtime missing.');
-        }
+        if (!SpineCtor || !spineNS) throw new Error('Spine runtime missing.');
 
-        // --- 1. LẤY DỮ LIỆU (HARD LINK) ---
         let jsonRaw: any = null;
         let atlasText: string | null = null;
-        let chickenTexture: Texture | null = null;
+        let readyTexture: Texture | null = null;
 
-        // Nếu là kfc_chicken, dùng ngay dữ liệu raw, KHÔNG CẦN TÌM CACHE
-        if (this.name === 'kfc_chicken' || this.name.includes('chicken')) {
-            console.log("SpinePlayer: Loading kfc_chicken from RAW DATA.");
+        // 1. ƯU TIÊN DÙNG RAW ASSETS TRUYỀN VÀO TỪ MAIN.TS
+        if (rawAssets && (this.name === 'kfc_chicken' || this.name.includes('chicken'))) {
+            console.log("SpinePlayer: Using provided RAW ASSETS.");
+            // A. JSON
+            try {
+                const jsonStr = safeDecodeBase64(rawAssets.json);
+                if (jsonStr) jsonRaw = JSON.parse(jsonStr);
+            } catch (e) {}
+
+            // B. Atlas
+            atlasText = safeDecodeBase64(rawAssets.atlas);
+
+            // C. ENHANCED TEXTURE LOADING FOR SPINE
+            console.log('🖼️ Loading texture for spine...');
+            console.log('🔍 RAW_SPINE_ASSETS.png type:', typeof rawAssets.png);
+            console.log('🔍 RAW_SPINE_ASSETS.png length:', rawAssets.png?.length || 'undefined');
             
-            // Giải mã JSON
-            try {
-                const jsonStr = decodeBase64(RAW_SPINE_ASSETS.json);
-                jsonRaw = JSON.parse(jsonStr);
-            } catch (e) { console.error("JSON Decode fail", e); }
-
-            // Giải mã Atlas
-            atlasText = decodeBase64(RAW_SPINE_ASSETS.atlas);
-
-            // Tạo texture một cách đồng bộ và đảm bảo không bị undefined
-            try {
-                // Tạo texture từ data URI
-                chickenTexture = Texture.from(RAW_SPINE_ASSETS.png);
-                
-                // Đợi texture được xử lý hoàn toàn
-                if (chickenTexture) {
-                    // Đảm bảo texture không bị undefined bằng cách kiểm tra và log
-                    console.log('Texture created successfully:', {
-                        texture: chickenTexture,
-                        width: chickenTexture.width,
-                        height: chickenTexture.height,
-                        source: chickenTexture.source
+            // Method 1: Try from cache first (most reliable)
+            if (Assets.cache.has('fixed_chicken_tex')) {
+                readyTexture = Assets.get('fixed_chicken_tex');
+                console.log('✅ Method 1: Got from cache:', readyTexture.width + 'x' + readyTexture.height);
+            } 
+            // Method 2: Create fresh from base64
+            else {
+                console.log('🆕 Method 2: Creating fresh texture from base64...');
+                try {
+                    // Create image element first for better compatibility
+                    const img = new Image();
+                    img.src = rawAssets.png;
+                    
+                    // Wait for image to load
+                    await new Promise((resolve, reject) => {
+                        img.onload = resolve;
+                        img.onerror = reject;
+                        // Timeout fallback
+                        setTimeout(() => reject(new Error('Image load timeout')), 5000);
                     });
-                } else {
-                    console.error('Failed to create texture - texture is null/undefined');
-                    chickenTexture = Texture.WHITE; // Fallback
+                    
+                    console.log('✅ Image element loaded:', img.width + 'x' + img.height);
+                    
+                    // Create PIXI texture from loaded image
+                    readyTexture = Texture.from(img);
+                    
+                    // Ensure texture is ready (PIXI v8 compatible)
+                    try {
+                        if (readyTexture.source && readyTexture.source.width === 0) {
+                            console.log('⏳ Waiting for texture to be ready...');
+                            await new Promise(resolve => setTimeout(resolve, 100)); // Simple timeout
+                        }
+                    } catch (e) {
+                        console.log('⚠️ Texture ready check skipped:', e);
+                    }
+                    
+                    console.log('✅ PIXI Texture created:', readyTexture.width + 'x' + readyTexture.height);
+                    
+                } catch(e) {
+                    console.error('❌ Method 2 failed:', e);
+                    // Method 3: Direct Texture.from as last resort
+                    try {
+                        console.log('🆗 Method 3: Direct Texture.from...');
+                        readyTexture = Texture.from(rawAssets.png);
+                        console.log('✅ Direct texture created:', readyTexture.width + 'x' + readyTexture.height);
+                    } catch (e3) {
+                        console.error('❌ All methods failed:', e3);
+                    }
                 }
-            } catch(e) { 
-                console.error("Texture creation failed completely:", e);
-                chickenTexture = Texture.WHITE; // Safe fallback
             }
-
-        } else {
-            // ... Logic fallback cho các spine khác (nếu có) ...
-            console.warn("Unknown spine name, trying generic cache load:", this.name);
+            
+            // Validation and emergency fallback
+            if (!readyTexture || readyTexture.width === 0 || readyTexture.height === 0) {
+                console.error('❌ No valid texture! Using WHITE as emergency fallback');
+                readyTexture = Texture.WHITE;
+            } else {
+                console.log('✅ Final texture ready:', readyTexture.width + 'x' + readyTexture.height);
+            }
         }
 
-        if (!jsonRaw || !atlasText || !chickenTexture) {
-             console.error(`Spine data missing for ${this.name}:`, {
-                 hasJson: !!jsonRaw,
-                 hasAtlas: !!atlasText, 
-                 hasTexture: !!chickenTexture
-             });
+        if (!jsonRaw || !atlasText) {
+             console.error(`Spine data missing for ${this.name}.`);
              return; 
         }
-        
-        console.log('All spine assets ready:', {
-            jsonSize: JSON.stringify(jsonRaw).length,
-            atlasSize: atlasText.length,
-            textureReady: !!chickenTexture
-        });
 
-        // --- 2. KHỞI TẠO RUNTIME ---
+        // 2. SETUP RUNTIME
         const TextureAtlasCtor = (spineNS as any).TextureAtlas || (spineModule as any).TextureAtlas;
         const AtlasAttachmentLoaderCtor = (spineNS as any).AtlasAttachmentLoader || (spineModule as any).AtlasAttachmentLoader;
         const SkeletonJsonCtor = (spineNS as any).SkeletonJson || (spineModule as any).SkeletonJson;
 
-        // --- 3. CREATE TEXTURE ATLAS WITH SAFE TEXTURE ACCESS ---
-        console.log('Creating TextureAtlas with validated texture loader...');
+        // 3. FIX ATLAS REGION TEXTURE ACCESS - SPINE-PIXI V8 SPECIFIC
+        console.log('Creating TextureAtlas with spine-pixi v8 fix...');
+        console.log('Ready texture:', readyTexture);
         
-        // Đảm bảo texture luôn có sẵn và valid
-        const safeTexture = chickenTexture || Texture.WHITE;
-        console.log('Using safe texture:', safeTexture, 'dimensions:', safeTexture.width, 'x', safeTexture.height);
+        const safeTexture = readyTexture || Texture.WHITE;
         
-        // Tạo một texture loader an toàn với full validation
-        const safeTextureLoader = (line: string) => {
-            console.log('Safe texture loader called for:', line);
-            
-            // Đảm bảo luôn trả về texture có đầy đủ properties
-            const texture = safeTexture;
-            
-            // Validate texture có tất cả properties cần thiết
-            if (!texture) {
-                console.error('Texture is null/undefined, creating emergency fallback');
-                return Texture.WHITE;
-            }
-            
-            // Ensure texture có các properties spine-pixi cần
-            if (!texture.source && !texture.baseTexture) {
-                console.warn('Texture missing source/baseTexture, adding fallback properties');
-                // Thêm properties fallback nếu thiếu
-                (texture as any).baseTexture = texture.source || Texture.WHITE.source;
-            }
-            
-            console.log('Returning validated texture:', texture);
-            return texture;
-        };
+        // PROPER SPINE TEXTURE ATLAS CREATION
+        console.log('🌐 Creating TextureAtlas with proper page loader...');
         
-        let atlas: any = null;
-        try {
-            atlas = new TextureAtlasCtor(atlasText, safeTextureLoader);
-            console.log('TextureAtlas created successfully');
-        } catch (e) {
-            console.error('Failed to create TextureAtlas:', e);
-            console.log('Trying with absolute minimal loader...');
+        const atlas = new TextureAtlasCtor(atlasText, (imagePath: string) => {
+            console.log('🖼️ Atlas requesting image:', imagePath);
+            console.log('🖼️ Returning texture:', safeTexture.width + 'x' + safeTexture.height);
             
-            // Final fallback - trả về Texture.WHITE cho mọi request
-            try {
-                atlas = new TextureAtlasCtor(atlasText, () => {
-                    console.log('Emergency fallback loader - returning WHITE');
-                    return Texture.WHITE;
-                });
-                console.log('Emergency atlas creation succeeded');
-            } catch (e2) {
-                console.error('Even emergency atlas creation failed:', e2);
-                return;
-            }
+            // DEBUG: Check what spine-pixi v8 actually expects
+            console.log('🔍 Texture type:', safeTexture.constructor.name);
+            console.log('🔍 Texture source:', safeTexture.source?.constructor.name);
+            
+            // Try different return formats for spine-pixi v8 compatibility
+            const returnOptions = [
+                safeTexture,                              // Option 1: Direct texture
+                { texture: safeTexture },                 // Option 2: Wrapped
+                safeTexture.source,                       // Option 3: Source only
+            ];
+            
+            console.log('🎯 Using return option 1: Direct texture');
+            return returnOptions[0];
+        });
+        
+        console.log('🗺️ TextureAtlas created, validating regions...');
+        console.log('🔍 Atlas object:', atlas);
+        console.log('🔍 Atlas pages:', atlas?.pages?.length || 0);
+        
+        if (atlas && atlas.regions) {
+            console.log('📊 Atlas regions count:', atlas.regions.length);
+            
+            // Just validate regions, don't manually modify them
+            atlas.regions.forEach((region: any, index: number) => {
+                if (region) {
+                    const hasTexture = !!(region.texture || (region.page && region.page.texture));
+                    console.log(`🔍 Region ${index}: "${region.name}" (${region.width}x${region.height}) hasTexture:${hasTexture}`);
+                    
+                    if (!hasTexture) {
+                        console.warn(`⚠️ Region ${index} has no texture - this will cause rendering issues`);
+                    }
+                } else {
+                    console.warn('❌ Region', index, 'is null/undefined');
+                }
+            });
+        } else {
+            console.error('❌ Atlas or atlas.regions is missing!');
         }
 
-        // Kiểm tra atlas được tạo thành công
+        // Validate atlas was created successfully
         if (!atlas) {
             console.error('Failed to create TextureAtlas');
             return;
         }
-        
-        console.log('Atlas created successfully:', atlas);
-        
+        console.log('TextureAtlas created successfully:', atlas);
+
         const atlasLoader = new AtlasAttachmentLoaderCtor(atlas);
         if (!atlasLoader) {
             console.error('Failed to create AtlasAttachmentLoader');
             return;
         }
-        
+
         const skeletonJson = new SkeletonJsonCtor(atlasLoader);
-        if (!skeletonJson) {
-            console.error('Failed to create SkeletonJson');
-            return;
-        }
-        
+        console.log('📖 Reading skeleton data...');
         const skeletonData = skeletonJson.readSkeletonData(jsonRaw);
+        
+        // Add extra validation for skeleton data
         if (!skeletonData) {
-            console.error('Failed to read skeleton data');
+            console.error('❌ Failed to create skeleton data');
             return;
         }
-        
-        console.log('SkeletonData created:', skeletonData);
-        
+        console.log('✅ Skeleton data created:');
+        console.log('  🦴 Bones:', skeletonData.bones?.length || 0);
+        console.log('  🎰 Slots:', skeletonData.slots?.length || 0);
+        console.log('  🎬 Animations:', skeletonData.animations?.length || 0);
+        if (skeletonData.animations) {
+            const animNames = skeletonData.animations.map((a: any) => a.name || 'unnamed').join(', ');
+            console.log('  📝 Animation names:', animNames);
+        }
+        console.log('  🎨 Skins:', skeletonData.skins?.length || 0);
+
+        console.log('🎭 Creating Spine instance...');
         const spine = new SpineCtor(skeletonData);
+        
+        // Validate spine instance
         if (!spine) {
             console.error('Failed to create Spine instance');
             return;
         }
+        console.log('🎭 Spine instance created successfully');
         
-        console.log('Spine instance created successfully:', spine);
-
-        // --- 4. SAFE CONFIGURATION WITH VALIDATION ---
-        console.log('Configuring spine instance...');
-        
-        // Validate spine object structure
-        if (!spine) {
-            console.error('Spine object is null/undefined');
-            return;
-        }
-        
-        // Check skeleton exists before accessing
+        // Check skeleton properties
         if (spine.skeleton) {
-            console.log('Skeleton found, configuring...');
-            try {
-                if (typeof spine.skeleton.setSkin === 'function') {
-                    spine.skeleton.setSkin('default');
-                    console.log('Skin set to default');
-                }
-            } catch (e) {
-                console.warn('Failed to set skin:', e);
-            }
-            
-            try {
-                if (typeof spine.skeleton.setToSetupPose === 'function') {
-                    spine.skeleton.setToSetupPose();
-                    console.log('Setup pose applied');
-                }
-            } catch (e) {
-                console.warn('Failed to set setup pose:', e);
-            }
-        } else {
-            console.error('Spine skeleton is missing');
-        }
-        
-        // Safe update call
-        try {
-            if (typeof spine.update === 'function') {
-                spine.update(0);
-                console.log('Initial spine update completed');
-            }
-        } catch (e) {
-            console.error('Failed to update spine:', e);
+            console.log('💀 Skeleton info: bones=' + (spine.skeleton.bones?.length || 0) + ' slots=' + (spine.skeleton.slots?.length || 0));
+            console.log('💀 Skeleton bounds: x=' + spine.skeleton.x + ' y=' + spine.skeleton.y);
         }
 
-        // --- 5. SAFE ANIMATION ENUMERATION ---
-        console.log('Enumerating available animations...');
-        try {
-            if (skeletonData && skeletonData.animations) {
-                console.log('SkeletonData animations:', skeletonData.animations);
-                
-                if (Array.isArray(skeletonData.animations)) {
-                    console.log('Animations is array, length:', skeletonData.animations.length);
-                    for (const a of skeletonData.animations) {
-                        if (a && a.name && typeof a.name === 'string') {
-                            this.available.add(a.name);
-                            console.log('Added animation:', a.name);
-                        }
-                    }
-                } else if (typeof skeletonData.animations === 'object') {
-                    console.log('Animations is object, keys:', Object.keys(skeletonData.animations));
-                    for (const k of Object.keys(skeletonData.animations)) {
-                        if (k && typeof k === 'string') {
-                            this.available.add(k);
-                            console.log('Added animation key:', k);
-                        }
-                    }
-                }
-            } else {
-                console.warn('No animations found in skeletonData');
-            }
-        } catch (e) {
-            console.error('Failed to enumerate animations:', e);
-        }
+        // 4. CONFIG & SAFE SETUP (skip problematic calls)
+        console.log('🔧 Configuring skeleton safely...');
         
-        console.log('Available animations:', Array.from(this.available));
+        // Skip setSkin - causes compatibility issues
+        console.log('⚠️ Skipping setSkin (compatibility issue)'); 
+        
+        // Safe setup pose
+        try { 
+            if (spine.skeleton && spine.skeleton.setToSetupPose) {
+                spine.skeleton.setToSetupPose(); 
+                console.log('🦴 Setup pose applied');
+            }
+        } catch (e) { console.warn('Setup pose failed:', e); }
+        
+        // Safe initial update 
+        try { 
+            if (spine.update) {
+                spine.update(0.016); // Use 60fps delta instead of 0
+                console.log('⚙️ Initial update applied');
+            }
+        } catch (e) { console.warn('Initial update failed:', e); }
+        
+        // Skip world transform - causes physics errors
+        console.log('⚠️ Skipping updateWorldTransform (compatibility issue)'); 
+        
+        // FORCE: Make sure skeleton has valid state
+        try {
+            if (spine.skeleton) {
+                // Manually set skeleton to visible state
+                spine.skeleton.a = 1; // Alpha
+                spine.skeleton.color = { r: 1, g: 1, b: 1, a: 1 }; // Color
+                console.log('🎆 Forced skeleton visibility state');
+            }
+        } catch (e) { console.warn('Force visibility failed:', e); }
+
+        try {
+            if (skeletonData && Array.isArray(skeletonData.animations)) {
+                for (const a of skeletonData.animations) { if (a && a.name) this.available.add(a.name); }
+            } else if (skeletonData && skeletonData.animations) {
+                for (const k of Object.keys(skeletonData.animations)) this.available.add(k);
+            }
+        } catch (e) {}
 
         this.spine = spine;
         this.view = spine;
+        
+        // CRITICAL: Force render state
+        try {
+            // Ensure view has proper visibility
+            spine.visible = true;
+            spine.alpha = 1;
+            spine.renderable = true;
+            
+            // Force initial skeleton state
+            if (spine.skeleton) {
+                spine.skeleton.a = 1;
+                if (spine.skeleton.slots) {
+                    spine.skeleton.slots.forEach((slot: any) => {
+                        if (slot) slot.a = 1; // Make all slots visible
+                    });
+                }
+            }
+            
+            console.log('📍 Forced spine visibility: visible=' + spine.visible + ' alpha=' + spine.alpha);
+        } catch (e) { 
+            console.warn('Force render state failed:', e); 
+        }
 
         // Mixes & Events
         try {
@@ -324,7 +329,7 @@ export class SpinePlayer {
         return this;
     }
 
-    // --- GIỮ NGUYÊN CÁC HÀM HỖ TRỢ ---
+    // --- CÁC HÀM HỖ TRỢ (GIỮ NGUYÊN) ---
     play(animName: string, loop = false, track = 0) {
         if (!this.spine) return false;
         try { (this.spine as any).state.setAnimation(track, animName, !!loop); return true; } catch (e) { return false; }
