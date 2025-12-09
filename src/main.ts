@@ -1245,6 +1245,8 @@ async function init() {
 
   async function restartGame() {
     try { SoundController.stopAll(); } catch (e) {}
+    
+    // Xóa tất cả pickups
     try {
       for (const it of pickups) {
         try { if (it && it.parent) it.parent.removeChild(it); } catch (e) {}
@@ -1252,6 +1254,7 @@ async function init() {
       pickups.length = 0;
     } catch (e) {}
 
+    // Xóa tất cả pattern containers
     try {
       for (const c of spawnedPatternContainers) {
         try { if (c && c.parent) c.parent.removeChild(c); } catch (e) {}
@@ -1259,12 +1262,41 @@ async function init() {
       spawnedPatternContainers.length = 0;
     } catch (e) {}
 
+    // XÓA TẤT CẢ CHILDREN TRONG WORLD (trừ background và player)
+    try {
+      console.log('Cleaning world children, before:', world.children.length);
+      
+      // Lưu lại các objects cần giữ
+      const childrenToKeep = [];
+      
+      // Giữ lại background (bg)
+      if (bg && bg.parent === world) {
+        childrenToKeep.push(bg);
+      }
+      
+      // Xóa tất cả children khác
+      const childrenToRemove = [...world.children];
+      for (const child of childrenToRemove) {
+        if (!childrenToKeep.includes(child)) {
+          try { 
+            world.removeChild(child); 
+          } catch (e) {}
+        }
+      }
+      
+      console.log('World children after cleanup:', world.children.length);
+    } catch (e) {
+      console.error('Error cleaning world:', e);
+    }
+
+    // Reset gameplay
     try {
       try { if (gameplay && typeof (gameplay.reset) === 'function') gameplay.reset(); } catch (e) {}
       gameplay = null;
       try { lastDistanceThreshold = 0; } catch (e) {}
     } catch (e) {}
 
+    // Reset player state
     try {
       try { (world as any).x = 0; } catch (e) {}
       try { player.worldX = PLAYER_X; player.vy = 0; playerDead = false; gameOver = false; controlsEnabled = true; prevScore = 0; score = 0; scoreText.text = `Score: ${score}`; } catch (e) {}
