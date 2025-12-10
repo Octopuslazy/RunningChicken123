@@ -234,6 +234,9 @@ async function init() {
   console.log('Adding initial red circle to world');
   world.addChild(player.sprite);
   player.sprite.y = player.y;
+
+  // Scale player sprite down by 50% so character is visually smaller
+  try { if (player && player.sprite && (player.sprite as any).scale) { (player.sprite as any).scale.x *= 0.5; (player.sprite as any).scale.y *= 0.5; } } catch (e) {}
   
   world.addChild(player.sprite);
   try {
@@ -318,6 +321,8 @@ async function init() {
       player.sprite.zIndex = 5000;
       
       world.addChild(player.sprite);
+      // Ensure Spine character is visually smaller: scale down by 50%
+      try { if (player && player.sprite && (player.sprite as any).scale) { (player.sprite as any).scale.x *= 0.5; (player.sprite as any).scale.y *= 0.5; } } catch (e) {}
       console.log('New spine sprite added to world');
       world.sortableChildren = true;
       
@@ -573,7 +578,8 @@ async function init() {
     try {
       // Khởi tạo gameplay trước
       try {
-        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24 });
+        // Enable pattern hitbox debug so plane colliders are visible for troubleshooting
+        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24, patternHitboxDebug: true });
         try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
       } catch (e) {}
 
@@ -873,19 +879,17 @@ async function init() {
                   // Tính obstacle position relative to pattern, không dùng world coordinates
                   const obstacleLocalLeft = planeLocalCenterX - gw / 2;
 
+                  // Update plane collision position for moving platform
                   const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
                   for (const o of obstacles) {
                     try {
                       if (!o || !o.sprite) continue;
-                      if ((o as any).isPlane && Math.abs((o.width || 0) - gw) < 8) {
-                        // Tính world position - chỉ update X, giữ nguyên Y từ Danger5.ts
+                      if ((o as any).isPlane && (o as any).planeId === ps.__planeId) {
                         const worldLeft = (patContainer.x || 0) + obstacleLocalLeft;
-                        // Sử dụng Y position đã được set trong pattern creation (từ Danger5.ts)
                         const originalY = (patContainer.y || 0) + (ps.__platformY || ps.y);
                         
-                        // Update obstacle stored position
+                        // Update collision bounds
                         o.x = worldLeft;
-                        // Update visual debug hitbox position - chỉ X di chuyển, Y cố định từ Danger5
                         o.sprite.x = worldLeft;
                         o.sprite.y = originalY;
                         break;
@@ -981,6 +985,15 @@ async function init() {
       for (const o of obstacles) {
         const left = o.x;
         const right = o.x + o.width;
+        // Debug: when encountering plane obstacles, log overlap details occasionally
+        try {
+          if ((o as any).isPlane) {
+            // throttle logs to avoid spam
+            if (Math.random() < 0.02) {
+              
+            }
+          }
+        } catch (e) {}
         if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
           const obstacleTop = o.sprite.y;
           const prevBottom = (app as any).__prevPlayerBottom !== undefined ? (app as any).__prevPlayerBottom : (player.y + playerRadius);
@@ -992,7 +1005,8 @@ async function init() {
             try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
             player.sprite.y = player.y;
             try {
-              if (!(o as any).isGround) {
+              // Chỉ layer Danger mới gây chết, layer UI chỉ block
+              if (!(o as any).isGround && (o as any).layer === 'Danger') {
                 try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
@@ -1002,10 +1016,35 @@ async function init() {
               }
             } catch (e) {}
           } else if (currBottom > obstacleTop) {
-            player.worldX = Math.min(player.worldX, o.x - playerRadius - 2);
-            player.sprite.x = player.worldX;
+            // Player is intersecting the obstacle vertically (side contact).
+            // Resolve horizontal penetration by moving the player the minimal
+            // distance out of the obstacle (symmetric) so the player cannot
+            // pass through. This avoids large forced snaps while ensuring
+            // blocking behavior.
             try {
-              if (!(o as any).isGround) {
+              const playerLeft = player.worldX - playerRadius;
+              const playerRight = player.worldX + playerRadius;
+              const overlapFromLeft = playerRight - left; // positive if overlapping into obstacle from left
+              const overlapFromRight = right - playerLeft; // positive if overlapping into obstacle from right
+
+              if (overlapFromLeft > 0 && overlapFromRight > 0) {
+                // Both computed overlaps > 0 means the player circle intersects horizontally.
+                // Move by the smaller penetration amount plus a tiny epsilon.
+                const EPS = 1;
+                if (overlapFromLeft < overlapFromRight) {
+                  player.worldX -= (overlapFromLeft + EPS);
+                } else {
+                  player.worldX += (overlapFromRight + EPS);
+                }
+              }
+            } catch (e) {}
+
+            // Always keep sprite in sync with worldX after resolution
+            try { player.sprite.x = player.worldX; } catch (e) {}
+
+            try {
+              // Only layer 'Danger' should trigger death; 'UI' planes only block
+              if (!(o as any).isGround && (o as any).layer === 'Danger') {
                 try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
@@ -1021,69 +1060,7 @@ async function init() {
 
     try {
 
-      // One-way platform collision check cho máy bay - truyền thêm velocity
-      const blocking = (gameplay as any).getBlockingObstacle ? (gameplay as any).getBlockingObstacle(player.worldX, player.y, playerRadius, player.vy) : null;
-      if (blocking && !(blocking as any).isGround) {
-        
-        if ((blocking as any).isPlane) {
-          // --- LOGIC ĐƠN GIẢN CHO MÁY BAY DỰA TRÊN ĐỘ CAO ---
-          
-          const planeTop = blocking.sprite.y;
-          const planeBottom = planeTop + blocking.height;
-          const playerTop = player.y - playerRadius;
-          const playerBottom = player.y + playerRadius;
-          
-          // 1. Nếu cạnh dưới của plane cao hơn hitbox của player
-          // → player đi qua bình thường (không bị đẩy)
-          if (planeBottom < playerTop) {
-            return; // Không có collision, player đi qua
-          }
-          
-          // 2. Nếu hitbox player cao hơn cạnh trên của plane
-          // → player đứng trên máy bay
-          if (playerBottom > planeTop && playerTop < planeTop) {
-            try {
-              player.y = planeTop - playerRadius;  // Đặt player lên trên máy bay
-              player.vy = 0;                       // Dừng rơi
-              player.onGround = true;              // Cho phép nhảy tiếp
-            } catch (e) {}
-            return;
-          }
-          
-          // 3. Kiểm tra collision thực tế trước khi đẩy (sử dụng stored position)
-          const planeLeft = blocking.x; // Left edge đã được update chính xác
-          const planeRight = blocking.x + blocking.width;
-          const playerLeft = player.worldX - playerRadius;
-          const playerRight = player.worldX + playerRadius;
-          
-          // Chỉ đẩy nếu có overlap thực tế theo trục X và Y
-          const hasHorizontalOverlap = (playerRight > planeLeft && playerLeft < planeRight);
-          const hasVerticalOverlap = (playerBottom > planeTop && playerTop < planeBottom);
-          
-          if (hasHorizontalOverlap && hasVerticalOverlap) {
-            
-            // Có collision thực tế → đẩy player
-            try {
-              player.worldX = planeLeft - playerRadius - 2;
-              player.sprite.x = player.worldX;
-            } catch (e) {}
-          }
-          // Nếu không có overlap thực tế → không làm gì cả
-          
-          return;
-        } else {
-          // Obstacle thông thường vẫn gây chết
-          try {} catch (e) {}
-          try {
-            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-            try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-            playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-          } catch (e) {}
-          return;
-        }
-      }
+      // Máy bay chỉ là decoration, không có collision
     } catch (e) {}
 
     try {
@@ -1103,7 +1080,8 @@ async function init() {
             const right = o.x + o.width;
             if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
               const obstacleTop = o.sprite.y;
-              if (Math.abs(playerBottom - obstacleTop) <= 8 && o.isGround) {
+              // Treat ground and plane colliders as valid 'running' surfaces
+              if (Math.abs(playerBottom - obstacleTop) <= 8 && (o.isGround || (o as any).isPlane)) {
                 shouldShowRun = true;
                 break;
               }
@@ -1153,7 +1131,8 @@ async function init() {
       }
     } catch (e) {}
 
-    try { player.setScreenScale && player.setScreenScale(currentScale); } catch (e) {}
+    // Do not counter-scale the player here; let `root.scale` scale all actors
+    // together so character, patterns and background keep the same ratio.
 
     try { if (cloudBigLayer && cloudBigLayer.update) cloudBigLayer.update(scroll); } catch (e) {}
     try { if (cloudSmallLayer && cloudSmallLayer.update) cloudSmallLayer.update(scroll); } catch (e) {}
@@ -1355,7 +1334,7 @@ async function init() {
         score = 0; 
         scoreText.text = `Score: ${score}`;
       } catch (e) {}
-      try { if (player && typeof (player.setScreenScale) === 'function') player.setScreenScale && player.setScreenScale(1); } catch (e) {}
+      // Do not counter-scale player on reset; keep scaling consistent with root
     } catch (e) {}
 
     try { await startGame(); } catch (e) {}
@@ -1493,10 +1472,17 @@ async function init() {
     currentScale = scale;
     root.x = (sw - WIDTH * scale) / 2;
     root.y = (sh - HEIGHT * scale) / 2;
-    try { if (player && (player as any).setScreenScale) (player as any).setScreenScale(currentScale); } catch (e) {}
+    // Intentionally do not call player.setScreenScale here so the player
+    // scales together with `root.scale` (keep uniform scaling across scene).
   }
 
   updateScale();
+
+  // Notify interested code that screen scale was updated so containers
+  // currently on-screen can react (e.g. adjust internal scaling).
+  try {
+    try { window && (window as any).dispatchEvent && (window as any).dispatchEvent(new CustomEvent('screen-scale', { detail: { scale: currentScale } })); } catch (e) {}
+  } catch (e) {}
 
   try { await startGame(); } catch (e) {}
   try { controlsEnabled = true; } catch (e) {}
@@ -1505,6 +1491,33 @@ async function init() {
     applyCanvasCssSize();
     updateScale();
   }
+
+  // Listen for external `screen-scale` events so we can propagate the
+  // new scale to containers that need to adjust their internal rendering.
+  try {
+    window.addEventListener('screen-scale', (ev: any) => {
+      try {
+        const s = ev && ev.detail && typeof ev.detail.scale === 'number' ? ev.detail.scale : currentScale;
+        currentScale = s;
+        try { root.scale.set(s, s); } catch (e) {}
+
+        // Give known actors a chance to react: any child that exposes
+        // `setScreenScale(scale)`. We intentionally do NOT call this on the
+        // player so the player scales with `root.scale` and keeps the same
+        // ratio to patterns/backgrounds.
+        try {
+          const arr = root && (root as any).children ? (root as any).children.slice() : [];
+          for (const c of arr) {
+            try {
+              if (c && typeof (c as any).setScreenScale === 'function') {
+                try { (c as any).setScreenScale(s); } catch (e) {}
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      } catch (e) {}
+    });
+  } catch (e) {}
 
   window.addEventListener('fullscreenchange', () => {
     try { onResize(); } catch (e) {}

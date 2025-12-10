@@ -13,7 +13,7 @@ export interface PatternData {
   pits?: { x: number; width: number }[];
   // optional obstacles described in local coordinates. MapHandler will
   // convert these to world coordinates and create invisible hitboxes.
-  obstacles?: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean }[];
+  obstacles?: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean; planeId?: number; layer?: string }[];
   // optional preferred player Y offset (local to container). If provided
   // MapHandler will use `container.y + playerYOffset` as the standing
   // surface for the player when on this pattern.
@@ -152,9 +152,8 @@ export class MapHandler {
           g.clear();
           // Draw hitbox fill - different colors for different obstacle types
           try {
-            const showHitbox = this.hitboxDebug || (ob as any).isPlane; // Always show plane hitbox
+            const showHitbox = this.hitboxDebug || (ob as any).isPlane;
             if (showHitbox) {
-              // Use blue for plane hitboxes, red for other obstacles
               const color = (ob as any).isPlane ? 0x0099ff : 0xff0000;
               const alpha = (ob as any).isPlane ? 0.4 : 0.25;
               
@@ -164,65 +163,24 @@ export class MapHandler {
                 (g as any).beginFill && (g as any).beginFill(color, alpha);
               }
               
-              // Add stroke for plane hitboxes to make them more visible
-              if ((ob as any).isPlane) {
-                try {
-                  if (typeof (g as any).stroke === 'function') {
-                    (g as any).stroke({ color: 0x0066cc, width: 2 });
-                  }
-                } catch (e) {}
-              }
-              
               try { (g as any).rect ? (g as any).rect(0, 0, gw, gh) : (g as any).drawRect && (g as any).drawRect(0, 0, gw, gh); } catch (e) {}
               try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
             }
           } catch (e) {}
-          // place hitbox - use specific Y if provided, otherwise use ground top
+          // place hitbox
           g.x = gx;
           if ((ob as any).isPlane && ob.y !== undefined) {
-            // For planes, use the Y position defined in pattern (from Danger5.ts)
-            g.y = p.container.y + ob.y; // Pattern container Y + obstacle Y offset
+            g.y = p.container.y + ob.y;
           } else {
-            // For other obstacles, use ground top
             g.y = worldGroundTop - gh;
           }
-          // Always show plane hitboxes (blue), other obstacles only when debug enabled
           g.visible = (ob as any).isPlane ? true : this.hitboxDebug;
           
-          // Debug for plane colliders
-          if ((ob as any).isPlane) {
-            console.log(`🎯 CREATING PLANE COLLIDER:
-              Position: x=${gx.toFixed(1)}, y=${g.y.toFixed(1)} (was ground: ${(worldGroundTop - gh).toFixed(1)})
-              Pattern container Y: ${p.container.y.toFixed(1)}, Obstacle Y: ${ob.y || 'undefined'}
-              Size: ${gw}x${gh}
-              Visible: ${g.visible}, Alpha: ${g.alpha}
-              Container: ${this.obstaclesContainer ? 'exists' : 'missing'}
-              World bounds: ${g.getBounds().x}, ${g.getBounds().y}, ${g.getBounds().width}, ${g.getBounds().height}
-            `);
-            
-            // Make sure it's EXTREMELY visible for debugging
-            g.alpha = 1.0;
-            g.zIndex = 999999;
-            g.tint = 0x00FF00; // Make it bright green
-            
-            // Debug container hierarchy
-            console.log(`📦 CONTAINER DEBUG:
-              obstaclesContainer exists: ${!!this.obstaclesContainer}
-              obstaclesContainer parent: ${this.obstaclesContainer?.parent?.constructor?.name || 'none'}
-              obstaclesContainer visible: ${this.obstaclesContainer?.visible}
-              obstaclesContainer alpha: ${this.obstaclesContainer?.alpha}
-            `);
-          }
+
           
-          // For planes, add directly to world instead of obstaclesContainer
-          if ((ob as any).isPlane) {
-            this.world.addChild(g);
-            console.log(`🚀 ADDED PLANE TO WORLD at x=${gx}, y=${g.y}`);
-          } else {
-            this.obstaclesContainer.addChild(g);
-          }
+          this.obstaclesContainer.addChild(g);
           
-          this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g, isGround: !!(ob as any).isGround, isPlane: !!(ob as any).isPlane } as any);
+          this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g, isGround: !!(ob as any).isGround, isPlane: !!(ob as any).isPlane, planeId: (ob as any).planeId, layer: (ob as any).layer } as any);
         }
       }
 
@@ -389,62 +347,37 @@ export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIG
     },
     getBlockingObstacle: (x: number, y: number, r: number, vy?: number) => {
       for (const o of handler.getObstacles()) {
-        // For moving objects like planes, use actual sprite position
-        // For static obstacles, use stored position
         let actualLeft, actualRight, actualTop;
         
         if ((o as any).isPlane) {
-          // For planes, use stored position (đã được update chính xác trong main loop)
-          actualLeft = o.x; // Đã là left edge
+          // For planes, use current position
+          actualLeft = o.x;
           actualRight = o.x + o.width;
           actualTop = o.sprite.y;
         } else {
-          // For static obstacles, use stored coordinates
+          // For static obstacles
           actualLeft = o.x;
           actualRight = o.x + o.width;
           actualTop = o.sprite.y;
         }
         
-        // Circle vs Rectangle collision
         const horizontalOverlap = (x + r >= actualLeft && x - r <= actualRight);
         
-        // Thêm kiểm tra khoảng cách cho máy bay
-        if ((o as any).isPlane) {
-          const distanceX = Math.abs(x - (actualLeft + actualRight) / 2);
-          const distanceY = Math.abs(y - actualTop);
-          // Nếu quá xa, bỏ qua collision
-          if (distanceX > o.width / 2 + r + 50 || distanceY > o.height + r + 50) {
-            continue;
-          }
-        }
-        
         if (horizontalOverlap) {
-          const playerTop = y - r;
           const playerBottom = y + r;
+          let verticalOverlap = false;
           
-          // One-way platform logic for planes
-          let verticalOverlap;
           if ((o as any).isPlane) {
-            // BƯỚC 1: Lọc logic cho máy bay (one-way platform)
-            
-            // 1. Nếu player đang bay lên (vy < 0), TUYỆT ĐỐI KHÔNG va chạm
+            // Moving platform logic - only land on top when falling down
             if (vy !== undefined && vy < 0) {
-              return null; // Bỏ qua collision, để player xuyên qua
+              continue; // Skip collision when jumping up
             }
             
             const planeTop = actualTop;
-            const playerBottom = y + r;
-            
-            // 2. Kiểm tra vị trí chân - chỉ collision khi chân đang ở trên máy bay  
-            if (y > planeTop + 20) { // Đã rơi xuống dưới máy bay
-              continue; // Bỏ qua obstacle này hoàn toàn
-            }
-            
-            // 3. Chỉ collision khi player rơi xuống và chạm từ trên xuống
-            verticalOverlap = (playerBottom >= planeTop && playerBottom <= planeTop + 15); // Chỉ chạm mặt trên
+            // Only collide when landing on top
+            verticalOverlap = (playerBottom >= planeTop && playerBottom <= planeTop + 15);
           } else {
-            // Normal obstacle collision (player lands on top)
-            const playerBottom = y + r;
+            // Normal obstacle collision
             verticalOverlap = playerBottom > actualTop;
           }
           

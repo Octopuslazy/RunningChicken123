@@ -55,23 +55,27 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
     }
 
     // collect obstacles for MapHandler (plane platform + any others)
-    const patternObstacles: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean }[] = [];
+    const patternObstacles: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean; layer?: string }[] = [];
 
     // decorative plane centered above the mid section
     try {
       const planeTex = Texture.from('/Assets/_arts/bg_3_plane.png');
       if (planeTex) {
         const ps = new Sprite(planeTex as any);
+        
+        // Moving platform setup
+        const uniqueId = Math.random();
+        (ps as any).__planeId = uniqueId;
+        
         ps.anchor.set(0.5, 1);
         // scale the plane up x2 as requested
         ps.scale.set(2.5, 2.5);
         ps.x = midStart + Math.floor(length / 2);
-        ps.y = -550;
+        ps.y = -400;
         ps.zIndex = 900;
         // mark sprite so main ticker can find and animate it
         (ps as any).__isPatternPlane = true;
         // horizontal velocity (px/s) relative to pattern local coords
-        // increase speed by 1.3x as requested (-220 -> -286)
         (ps as any).__vx = -600;
         container.addChild(ps);
 
@@ -83,14 +87,24 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const leftX = ps.x - gw / 2; // Collider từ center trừ đi nửa chiều rộng
         
         // Tính vị trí Y thực của collider (máy bay có anchor.y = 1, nên ps.y là bottom)
-        const colliderY = ps.y; // Máy bay ở -600, collider cũng ở -600
+        const colliderY = ps.y-50; // Máy bay ở -550
         
-        // store metadata so main can match collider entries later
+        // Store metadata for collision system
         (ps as any).__platformLocalLeft = leftX;
         (ps as any).__platformWidth = gw;
         (ps as any).__platformHeight = gh;
-        (ps as any).__platformY = colliderY; // Lưu Y position riêng cho debug
-        patternObstacles.push({ x: leftX, width: gw, height: gh, y: colliderY, isGround: true, isPlane: true });
+        (ps as any).__platformY = colliderY;
+        
+        patternObstacles.push({ 
+          x: leftX, 
+          width: gw, 
+          height: gh, 
+          y: colliderY, 
+          isGround: false, 
+          isPlane: true,
+          planeId: uniqueId,
+          layer: 'UI' // Chỉ block, không gây chết
+        } as any);
       }
     } catch (e) {}
     try {

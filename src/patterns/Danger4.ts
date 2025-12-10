@@ -94,7 +94,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const leftX = ds.x - gw * ds.anchor.x;
         // no outline: obstacle collider will be created by MapHandler
 
-        patternObstacles.push({ x: leftX, width: gw, height: gh });
+        patternObstacles.push({ x: leftX, width: gw, height: gh, layer: 'Danger' } as any);
       }
     } catch (e) {}
     try {
@@ -119,7 +119,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const leftX = ds.x - gw * ds.anchor.x;
         // no outline: obstacle collider will be created by MapHandler
 
-        patternObstacles.push({ x: leftX, width: gw, height: gh });
+        patternObstacles.push({ x: leftX, width: gw, height: gh, layer: 'Danger' } as any);
       }
     } catch (e) {}
      try {
