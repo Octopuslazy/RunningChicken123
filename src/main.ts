@@ -200,13 +200,12 @@ async function init() {
   const PLAYER_SPAWN_LIFT = 80;
   let player: any = null;
   
-  // Debug hitbox - circle (hidden)
+  // Debug hitbox - circle
   const debugHitbox = new Graphics();
   debugHitbox.circle(0, 0, playerRadius)
-    .fill({ color: 0xff0000, alpha: 0 })
-    .stroke({ color: 0xff0000, width: 0 });
-  debugHitbox.alpha = 0;
-  debugHitbox.visible = false;
+    .fill({ color: 0xff0000, alpha: 0.3 })
+    .stroke({ color: 0xff0000, width: 3 });
+  debugHitbox.alpha = 0.8;
   
   // Tạo nhân vật với graphics fallback trước - sẽ được thay thế bằng spine
   console.log('Creating initial character with red circle fallback');
@@ -848,6 +847,9 @@ async function init() {
     debugHitbox.x = player.worldX + (world.x || 0);
     debugHitbox.y = player.y;
     
+    
+   
+    
     const playerScreenX = player.worldX + (world.x || 0);
     try {
       const handler = (gameplay as any)._handler;
@@ -863,18 +865,29 @@ async function init() {
 
                   const gw = ps.__platformWidth || ((ps.texture && (ps.texture as any).width) * (ps.scale.x || 1));
                   const gh = ps.__platformHeight || 28;
-                  const leftLocal = ps.x - gw * (ps.anchor ? ps.anchor.x : 0);
-                  const worldLeft = (patContainer.x || 0) + leftLocal;
-                  const worldTop = (patContainer.y || 0) + ps.y - gh;
+                  
+                  // Sử dụng plane local position thay vì world position để tránh tọa độ quá lớn
+                  const planeLocalCenterX = ps.x; // Local position trong pattern
+                  const planeLocalTopY = ps.y;
+                  
+                  // Tính obstacle position relative to pattern, không dùng world coordinates
+                  const obstacleLocalLeft = planeLocalCenterX - gw / 2;
 
                   const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
                   for (const o of obstacles) {
                     try {
                       if (!o || !o.sprite) continue;
-                      if (Math.abs((o.width || 0) - gw) < 8 && Math.abs((o.x || 0) - worldLeft) < 48) {
+                      if ((o as any).isPlane && Math.abs((o.width || 0) - gw) < 8) {
+                        // Tính world position - chỉ update X, giữ nguyên Y từ Danger5.ts
+                        const worldLeft = (patContainer.x || 0) + obstacleLocalLeft;
+                        // Sử dụng Y position đã được set trong pattern creation (từ Danger5.ts)
+                        const originalY = (patContainer.y || 0) + (ps.__platformY || ps.y);
+                        
+                        // Update obstacle stored position
                         o.x = worldLeft;
+                        // Update visual debug hitbox position - chỉ X di chuyển, Y cố định từ Danger5
                         o.sprite.x = worldLeft;
-                        o.sprite.y = worldTop;
+                        o.sprite.y = originalY;
                         break;
                       }
                     } catch (e) {}
@@ -1037,12 +1050,25 @@ async function init() {
             return;
           }
           
-          // 3. Các trường hợp khác (collision bên cạnh) → đẩy player
-          try {
-            const planeLeft = blocking.x;
-            player.worldX = planeLeft - playerRadius - 2;
-            player.sprite.x = player.worldX;
-          } catch (e) {}
+          // 3. Kiểm tra collision thực tế trước khi đẩy (sử dụng stored position)
+          const planeLeft = blocking.x; // Left edge đã được update chính xác
+          const planeRight = blocking.x + blocking.width;
+          const playerLeft = player.worldX - playerRadius;
+          const playerRight = player.worldX + playerRadius;
+          
+          // Chỉ đẩy nếu có overlap thực tế theo trục X và Y
+          const hasHorizontalOverlap = (playerRight > planeLeft && playerLeft < planeRight);
+          const hasVerticalOverlap = (playerBottom > planeTop && playerTop < planeBottom);
+          
+          if (hasHorizontalOverlap && hasVerticalOverlap) {
+            
+            // Có collision thực tế → đẩy player
+            try {
+              player.worldX = planeLeft - playerRadius - 2;
+              player.sprite.x = player.worldX;
+            } catch (e) {}
+          }
+          // Nếu không có overlap thực tế → không làm gì cả
           
           return;
         } else {

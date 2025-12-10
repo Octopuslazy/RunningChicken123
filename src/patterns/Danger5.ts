@@ -66,7 +66,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         // scale the plane up x2 as requested
         ps.scale.set(2.5, 2.5);
         ps.x = midStart + Math.floor(length / 2);
-        ps.y = -600;
+        ps.y = -550;
         ps.zIndex = 900;
         // mark sprite so main ticker can find and animate it
         (ps as any).__isPatternPlane = true;
