@@ -51,8 +51,42 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     g.circle(0, 0, playerRadius).fill({ color: 0xffdd00 });
     sprite = g as Graphics;
   }
+  // Ensure sprite pivot/anchor is centered so rotations and scaling happen
+  // around the visual center. Do this before positioning the sprite in world coords.
+  try {
+    // Always compute local bounds and center the visual pivot/anchor.
+    const b = (sprite as any).getLocalBounds ? (sprite as any).getLocalBounds() : { x: 0, y: 0, width: 0, height: 0 };
+    const centerX = (b.x || 0) + (b.width || 0) / 2;
+    const centerY = (b.y || 0) + (b.height || 0) / 2;
+
+    // For PIXI.Sprite prefer anchor (fractional), falling back to pivot if anchor not present.
+    if ((sprite as any).anchor && typeof (sprite as any).anchor.set === 'function' && b.width && b.height) {
+      try {
+        (sprite as any).anchor.set(0.5, 0.5);
+      } catch (e) {}
+    } else if ((sprite as any).pivot && typeof (sprite as any).pivot.set === 'function') {
+      try {
+        (sprite as any).pivot.set(centerX, centerY);
+      } catch (e) {}
+    } else {
+      try { (sprite as any).pivot = { x: centerX, y: centerY }; } catch (e) {}
+    }
+  } catch (e) {}
+
+  // Persist the initial centered anchor/pivot so the sprite remains centered
+  // after any temporary runtime changes (e.g. during spin). This records the
+  // intended anchor/pivot at spawn time.
+  try {
+    if ((sprite as any).anchor && typeof (sprite as any).anchor.set === 'function') {
+      try { (sprite as any).__initialAnchor = { x: (sprite as any).anchor.x, y: (sprite as any).anchor.y }; } catch (e) {}
+    } else if ((sprite as any).pivot) {
+      try { (sprite as any).__initialPivot = { x: ((sprite as any).pivot.x || 0), y: ((sprite as any).pivot.y || 0) }; } catch (e) {}
+    }
+  } catch (e) {}
+
   // position sprite (world coordinates)
   sprite.x = PLAYER_X;
+  // Place sprite so its visual center sits at the intended player Y (ground top minus radius)
   sprite.y = groundY - playerRadius;
   // make interactive
   (sprite as any).interactive = true;
@@ -152,61 +186,140 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
             // Only perform the 360° spin when this is the 'double-jump' (i.e. last available mid-air jump)
             if (prevJumpsLeft === 1) {
               try {
-                const spinDuration = 520; // ms
-                const spriteAny: any = this.sprite;
-                // ensure rotation pivot is the visual center of the sprite/container
-                let prevPivot: any = { x: 0, y: 0 };
-                let prevPos: any = { x: spriteAny.x, y: spriteAny.y };
-                try {
-                  if (spriteAny.pivot) {
-                    prevPivot.x = spriteAny.pivot.x || 0;
-                    prevPivot.y = spriteAny.pivot.y || 0;
-                  }
-                  prevPos.x = spriteAny.x; prevPos.y = spriteAny.y;
-                  const b = spriteAny.getLocalBounds ? spriteAny.getLocalBounds() : null;
-                  if (b) {
-                    const cx = b.x + b.width / 2;
-                    const cy = b.y + b.height / 2;
-                    try { spriteAny.pivot && typeof spriteAny.pivot.set === 'function' ? spriteAny.pivot.set(cx, cy) : (spriteAny.pivot = { x: cx, y: cy }); } catch (e) {}
-                    // keep world position consistent
-                    spriteAny.x = prevPos.x; spriteAny.y = prevPos.y;
-                  }
+              const spinDuration = 520; // ms
+              const spriteAny: any = this.sprite;
+              
+              // Store original transform values so we can restore later
+              const originalRotation = spriteAny.rotation || 0;
+              const originalX = spriteAny.x;
+              const originalY = spriteAny.y;
+              let hadAnchor = !!spriteAny.anchor;
+              const originalAnchor = hadAnchor && spriteAny.anchor ? { x: spriteAny.anchor.x, y: spriteAny.anchor.y } : null;
+              const originalPivot = spriteAny.pivot ? { x: (spriteAny.pivot.x || 0), y: (spriteAny.pivot.y || 0) } : null;
+
+              // Compute local visual bounds and desired center pivot
+              let bounds: any = { x: 0, y: 0, width: 0, height: 0 };
+              try { bounds = spriteAny.getLocalBounds ? spriteAny.getLocalBounds() : bounds; } catch (e) {}
+              const centerLocalX = (bounds.x || 0) + (bounds.width || 0) / 2;
+              const centerLocalY = (bounds.y || 0) + (bounds.height || 0) / 2;
+
+              // Determine current pivot in pixels (based on anchor or pivot)
+              let oldPivotPixels = { x: 0, y: 0 };
+              if (hadAnchor && bounds.width && bounds.height) {
+                oldPivotPixels.x = (bounds.x || 0) + (bounds.width || 0) * (originalAnchor ? originalAnchor.x : 0.5);
+                oldPivotPixels.y = (bounds.y || 0) + (bounds.height || 0) * (originalAnchor ? originalAnchor.y : 0.5);
+              } else if (originalPivot) {
+                oldPivotPixels.x = originalPivot.x;
+                oldPivotPixels.y = originalPivot.y;
+              }
+
+              // Do not change anchor/pivot during spin. The sprite was centered at
+              // creation so rotation will be around the visual center. Avoid any
+              // runtime anchor/pivot changes to prevent position jumps.
+
+              // cancel previous spin if running
+              if (spriteAny.__spinCancel) {
+                try { spriteAny.__spinCancel(); } catch (e) {}
+                spriteAny.__spinCancel = null;
+              }
+
+              const startRot = originalRotation;
+              const targetRot = startRot + Math.PI * 2;
+              const startTime = (performance && performance.now) ? performance.now() : Date.now();
+              let rafId: number | null = null;
+              // Ensure pivot/anchor is centered before starting spin so rotation
+              // happens around the visual center. This is idempotent and we do
+              // NOT restore the original anchor (we want the centered anchor).
+              try {
+                const bTry = spriteAny.getLocalBounds ? spriteAny.getLocalBounds() : null;
+                const cX = bTry ? ((bTry.x || 0) + (bTry.width || 0) / 2) : 0;
+                const cY = bTry ? ((bTry.y || 0) + (bTry.height || 0) / 2) : 0;
+                if (spriteAny.anchor && typeof spriteAny.anchor.set === 'function') {
+                  try { spriteAny.anchor.set(0.5, 0.5); } catch (e) {}
+                } else if (spriteAny.pivot && typeof spriteAny.pivot.set === 'function') {
+                  try { spriteAny.pivot.set(cX, cY); } catch (e) {}
+                } else {
+                  try { spriteAny.pivot = { x: cX, y: cY }; } catch (e) {}
+                }
+              } catch (e) {}
+              
+              function step(now: number) {
+                const t = Math.min(1, (now - startTime) / spinDuration);
+                // ease-out cubic for nicer motion
+                const eased = 1 - Math.pow(1 - t, 3);
+                try { 
+                spriteAny.rotation = startRot + (targetRot - startRot) * eased;
                 } catch (e) {}
-
-                // cancel previous spin if running
-                if (spriteAny.__spinCancel) {
-                  try { spriteAny.__spinCancel(); } catch (e) {}
-                  spriteAny.__spinCancel = null;
-                }
-
-                const startRot = (spriteAny.rotation || 0) as number;
-                const targetRot = startRot + Math.PI * 2;
-                const startTime = (performance && performance.now) ? performance.now() : Date.now();
-                let rafId: number | null = null;
-                function step(now: number) {
-                  const t = Math.min(1, (now - startTime) / spinDuration);
-                  // ease-out cubic for nicer motion
-                  const eased = 1 - Math.pow(1 - t, 3);
-                  try { spriteAny.rotation = startRot + (targetRot - startRot) * eased; } catch (e) {}
-                  if (t < 1) {
-                    rafId = requestAnimationFrame(step);
-                  } else {
-                    // restore rotation and pivot to avoid numeric accumulation
-                    try { spriteAny.rotation = startRot; } catch (e) {}
-                    try { if (spriteAny.pivot && typeof spriteAny.pivot.set === 'function') spriteAny.pivot.set(prevPivot.x, prevPivot.y); else spriteAny.pivot = prevPivot; } catch (e) {}
-                    try { spriteAny.x = prevPos.x; spriteAny.y = prevPos.y; } catch (e) {}
-                    rafId = null;
-                  }
-                }
+                
+                if (t < 1) {
                 rafId = requestAnimationFrame(step);
-                // provide a cancel function in case another spin starts
-                spriteAny.__spinCancel = () => {
-                  if (rafId) try { cancelAnimationFrame(rafId); } catch (e) {};
-                  try { spriteAny.rotation = startRot; } catch (e) {};
-                  try { if (spriteAny.pivot && typeof spriteAny.pivot.set === 'function') spriteAny.pivot.set(prevPivot.x, prevPivot.y); else spriteAny.pivot = prevPivot; } catch (e) {}
-                  try { spriteAny.x = prevPos.x; spriteAny.y = prevPos.y; } catch (e) {};
-                  rafId = null;
-                };
+                } else {
+                // restore original values (rotation) and restore original anchor/pivot
+                // but preserve the sprite's world position by computing the global
+                // position of the visual center before changing anchor/pivot.
+                try {
+                  spriteAny.rotation = originalRotation;
+                  // compute world position of the sprite's visual center
+                  let globalCenter: any = null;
+                  try { if (typeof spriteAny.getGlobalPosition === 'function') globalCenter = spriteAny.getGlobalPosition(); } catch (e) {}
+                  if (!globalCenter) globalCenter = { x: spriteAny.x, y: spriteAny.y };
+
+                  // restore anchor/pivot to original values
+                  try {
+                    if (originalAnchor && spriteAny.anchor && typeof spriteAny.anchor.set === 'function') {
+                      spriteAny.anchor.set(originalAnchor.x, originalAnchor.y);
+                    } else if (originalPivot && spriteAny.pivot && typeof spriteAny.pivot.set === 'function') {
+                      spriteAny.pivot.set(originalPivot.x, originalPivot.y);
+                    }
+                  } catch (e) {}
+
+                  // convert the preserved globalCenter back to local coordinates and set position
+                  try {
+                    if (spriteAny.parent && typeof (spriteAny.parent.toLocal) === 'function') {
+                      const local = (spriteAny.parent as any).toLocal(globalCenter);
+                      spriteAny.x = local.x;
+                      spriteAny.y = local.y;
+                    } else {
+                      spriteAny.x = globalCenter.x;
+                      spriteAny.y = globalCenter.y;
+                    }
+                  } catch (e) {}
+                } catch (e) {}
+                rafId = null;
+                }
+              }
+              
+              rafId = requestAnimationFrame(step);
+              
+              // provide a cancel function in case another spin starts
+              spriteAny.__spinCancel = () => {
+                if (rafId) try { cancelAnimationFrame(rafId); } catch (e) {};
+                try {
+                  spriteAny.rotation = originalRotation;
+                  // restore anchor/pivot safely while keeping world position
+                  let globalCenter2: any = null;
+                  try { if (typeof spriteAny.getGlobalPosition === 'function') globalCenter2 = spriteAny.getGlobalPosition(); } catch (e) {}
+                  if (!globalCenter2) globalCenter2 = { x: spriteAny.x, y: spriteAny.y };
+                  try {
+                    if (originalAnchor && spriteAny.anchor && typeof spriteAny.anchor.set === 'function') {
+                      spriteAny.anchor.set(originalAnchor.x, originalAnchor.y);
+                    } else if (originalPivot && spriteAny.pivot && typeof spriteAny.pivot.set === 'function') {
+                      spriteAny.pivot.set(originalPivot.x, originalPivot.y);
+                    }
+                  } catch (e) {}
+                  try {
+                    if (spriteAny.parent && typeof (spriteAny.parent.toLocal) === 'function') {
+                      const local2 = (spriteAny.parent as any).toLocal(globalCenter2);
+                      spriteAny.x = local2.x;
+                      spriteAny.y = local2.y;
+                    } else {
+                      spriteAny.x = globalCenter2.x;
+                      spriteAny.y = globalCenter2.y;
+                    }
+                  } catch (e) {}
+                } catch (e) {}
+                rafId = null;
+              };
               } catch (e) {}
             }
           } catch (e) {}
@@ -256,6 +369,17 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
       // sprite.x is in world coordinates; world.x = -scroll will offset it on-screen
       this.sprite.x = this.worldX;
       this.sprite.y = this.y;
+
+      // Enforce initial centered anchor/pivot every frame so the character
+      // remains centered (never anchored at the feet).
+      try {
+        const sAny: any = this.sprite;
+        if (sAny.__initialAnchor && sAny.anchor && typeof sAny.anchor.set === 'function') {
+          try { sAny.anchor.set(sAny.__initialAnchor.x, sAny.__initialAnchor.y); } catch (e) {}
+        } else if (sAny.__initialPivot && sAny.pivot && typeof sAny.pivot.set === 'function') {
+          try { sAny.pivot.set(sAny.__initialPivot.x, sAny.__initialPivot.y); } catch (e) {}
+        }
+      } catch (e) {}
     }
   ,
     setScreenScale(scale: number) {

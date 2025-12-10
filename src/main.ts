@@ -212,7 +212,7 @@ async function init() {
   player = createCharacter({ 
     PLAYER_X, 
     playerRadius, 
-    groundY: groundY - PLAYER_SPAWN_LIFT, 
+    groundY: groundY, 
     texture: undefined, // Dùng graphics trước
     jumpSpeed: 1400, 
     gravity: 4000, 
@@ -220,7 +220,7 @@ async function init() {
   });
 
   player.worldX = PLAYER_X;
-  player.y = groundY - PLAYER_SPAWN_LIFT - playerRadius;
+  player.y = groundY - 90 ;
   
   // Đảm bảo sprite visible và có alpha
   player.sprite.visible = true;
@@ -314,6 +314,20 @@ async function init() {
       // Gán sprite mới và thêm vào world
       console.log('Replacing with spine view, type:', sp.view.constructor.name);
       player.sprite = sp.view;
+      // Ensure the new Spine view uses a centered anchor/pivot and record it
+      try {
+        const sv: any = player.sprite;
+        const b = sv.getLocalBounds ? sv.getLocalBounds() : null;
+        const cx = b ? ((b.x || 0) + (b.width || 0) / 2) : 0;
+        const cy = b ? ((b.y || 0) + (b.height || 0) / 2) : 0;
+        if (sv.anchor && typeof sv.anchor.set === 'function' && b && b.width && b.height) {
+          try { sv.anchor.set(0.5, 0.5); sv.__initialAnchor = { x: 0.5, y: 0.5 }; } catch (e) {}
+        } else if (sv.pivot && typeof sv.pivot.set === 'function') {
+          try { sv.pivot.set(cx, cy); sv.__initialPivot = { x: cx, y: cy }; } catch (e) {}
+        } else {
+          try { sv.pivot = { x: cx, y: cy }; sv.__initialPivot = { x: cx, y: cy }; } catch (e) {}
+        }
+      } catch (e) {}
       player.sprite.visible = true;
       player.sprite.alpha = 1;
       player.sprite.x = player.worldX;
@@ -712,9 +726,9 @@ async function init() {
             player.worldX = targetWorldX;
             try {
               const surfaceY = handler.getSurfaceYAt ? handler.getSurfaceYAt(targetWorldX) : p1.container.y;
-              player.y = surfaceY - playerRadius - PLAYER_SPAWN_LIFT;
+              player.y = surfaceY - playerRadius;
             } catch (e) {
-              player.y = p1.container.y - playerRadius - PLAYER_SPAWN_LIFT;
+              player.y = p1.container.y - playerRadius;
             }
             player.vy = 0;
             player.onGround = true;
@@ -852,6 +866,15 @@ async function init() {
     // Update debug hitbox position
     debugHitbox.x = player.worldX + (world.x || 0);
     debugHitbox.y = player.y;
+    // Ensure player sprite keeps the initial centered anchor/pivot (never anchored at feet)
+    try {
+      const sAny: any = player.sprite;
+      if (sAny && sAny.__initialAnchor && sAny.anchor && typeof sAny.anchor.set === 'function') {
+        try { sAny.anchor.set(sAny.__initialAnchor.x, sAny.__initialAnchor.y); } catch (e) {}
+      } else if (sAny && sAny.__initialPivot && sAny.pivot && typeof sAny.pivot.set === 'function') {
+        try { sAny.pivot.set(sAny.__initialPivot.x, sAny.__initialPivot.y); } catch (e) {}
+      }
+    } catch (e) {}
     
     
    
@@ -1432,13 +1455,13 @@ async function init() {
       try {
         const overPit = (gameplay as any).isOverPit ? (gameplay as any).isOverPit(player.worldX) : false;
         if (overPit && (player as any).vy > 60) {
-          const surfaceY = (player as any).getGroundY ? (player as any).getGroundY(player.worldX) : groundY;
-          const playerBottom = player.y + playerRadius;
-          if (playerBottom > surfaceY + 12) {
+          // const surfaceY = (player as any).getGroundY ? (player as any).getGroundY(player.worldX) : groundY;
+          // const playerBottom = player.y + playerRadius;
+          // if (playerBottom > surfaceY + 12) {
              
-            doGameOver('fell-into-pit');
-            return;
-          }
+          //   doGameOver('fell-into-pit');
+          //   return;
+          // }
         }
       } catch (e) {}
 

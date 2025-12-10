@@ -63,7 +63,10 @@ export class MapHandler {
     this.obstaclesContainer = new Container();
     this.world.addChild(this.obstaclesContainer);
     this.hitboxDebug = !!(options as any).patternHitboxDebug;
-    this.groundThickness = (options as any).patternGroundThickness ?? this.groundThickness;
+    // Increase ground collider thickness by 2.5x as requested so ground hitboxes
+    // are taller. If a patternGroundThickness option is provided use it,
+    // otherwise fall back to the default and then multiply.
+    this.groundThickness = (((options as any).patternGroundThickness ?? this.groundThickness) * 1.5);
     this.obstaclePadding = (options as any).patternObstaclePadding ?? 100;
     // track spawned patterns (start, length, topY) for ground membership checks
     this.patterns = [] as { start: number; length: number; top?: number }[];
