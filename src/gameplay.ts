@@ -13,7 +13,7 @@ export interface PatternData {
   pits?: { x: number; width: number }[];
   // optional obstacles described in local coordinates. MapHandler will
   // convert these to world coordinates and create invisible hitboxes.
-  obstacles?: { x: number; width: number; height: number; isGround?: boolean; isPlane?: boolean }[];
+  obstacles?: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean }[];
   // optional preferred player Y offset (local to container). If provided
   // MapHandler will use `container.y + playerYOffset` as the standing
   // surface for the player when on this pattern.
@@ -150,15 +150,20 @@ export class MapHandler {
           const g = new Graphics();
           // draw hitbox; visibility controlled by hitboxDebug for debugging
           g.clear();
-          // Draw hitbox fill only when debug is enabled. We intentionally
-          // avoid drawing a red stroke/outline to keep visuals clean.
+          // Draw hitbox fill - only when debug is enabled (never for planes)
           try {
-            if (this.hitboxDebug) {
+            const showHitbox = this.hitboxDebug && !(ob as any).isPlane; // Never show plane hitbox
+            if (showHitbox) {
+              // Red color for normal obstacles only
+              const color = 0xff0000;
+              const alpha = 0.25;
+              
               if (typeof (g as any).fill === 'function') {
-                try { (g as any).fill(0xff0000, 0.25); } catch (e) { try { (g as any).fill({ color: 0xff0000, alpha: 0.25 }); } catch (e) {} }
+                try { (g as any).fill(color, alpha); } catch (e) { try { (g as any).fill({ color: color, alpha: alpha }); } catch (e) {} }
               } else {
-                (g as any).beginFill && (g as any).beginFill(0xff0000, 0.25);
+                (g as any).beginFill && (g as any).beginFill(color, alpha);
               }
+              
               try { (g as any).rect ? (g as any).rect(0, 0, gw, gh) : (g as any).drawRect && (g as any).drawRect(0, 0, gw, gh); } catch (e) {}
               try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
             }
@@ -166,10 +171,8 @@ export class MapHandler {
           // place hitbox relative to the pattern's visual ground top
           g.x = gx;
           g.y = worldGroundTop - gh;
-          // if obstacle is marked as a plane, keep its collider hidden even
-          // when hitbox debug is enabled so players don't see it during
-          // normal debugging. Other obstacles follow `hitboxDebug`.
-          g.visible = this.hitboxDebug && !((ob as any).isPlane);
+          // Hide all hitboxes including plane hitboxes
+          g.visible = false;
           this.obstaclesContainer.addChild(g);
           this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g, isGround: !!(ob as any).isGround, isPlane: !!(ob as any).isPlane } as any);
         }
@@ -336,13 +339,61 @@ export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIG
       }
       return false;
     },
-    getBlockingObstacle: (x: number, y: number, r: number) => {
+    getBlockingObstacle: (x: number, y: number, r: number, vy?: number) => {
       for (const o of handler.getObstacles()) {
-        const left = o.x; const right = o.x + o.width;
-        if (x + r > left && x - r < right) {
+        // For moving objects like planes, use actual sprite position
+        // For static obstacles, use stored position
+        let actualLeft, actualRight, actualTop;
+        
+        if ((o as any).isPlane) {
+          // For planes, get actual sprite world position
+          const spriteWorldX = o.sprite.x + (o.sprite.parent ? o.sprite.parent.x || 0 : 0);
+          const spriteWidth = o.width; // Use stored width since it's calculated correctly
+          actualLeft = spriteWorldX - spriteWidth / 2; // Plane is centered
+          actualRight = spriteWorldX + spriteWidth / 2;
+          actualTop = o.sprite.y;
+        } else {
+          // For static obstacles, use stored coordinates
+          actualLeft = o.x;
+          actualRight = o.x + o.width;
+          actualTop = o.sprite.y;
+        }
+        
+        // Circle vs Rectangle collision
+        const horizontalOverlap = (x + r >= actualLeft && x - r <= actualRight);
+        
+        if (horizontalOverlap) {
+          const playerTop = y - r;
           const playerBottom = y + r;
-          const obstacleTop = o.sprite.y;
-          if (playerBottom > obstacleTop) return o;
+          
+          // One-way platform logic for planes
+          let verticalOverlap;
+          if ((o as any).isPlane) {
+            // BƯỚC 1: Lọc logic cho máy bay (one-way platform)
+            
+            // 1. Nếu player đang bay lên (vy < 0), TUYỆT ĐỐI KHÔNG va chạm
+            if (vy !== undefined && vy < 0) {
+              return null; // Bỏ qua collision, để player xuyên qua
+            }
+            
+            const planeTop = actualTop;
+            const playerBottom = y + r;
+            
+            // 2. Kiểm tra vị trí chân - chỉ collision khi chân đang ở trên máy bay  
+            if (y > planeTop + 20) { // Đã rơi xuống dưới máy bay
+              verticalOverlap = false;
+            }
+            // 3. Chỉ collision khi player rơi xuống và chạm từ trên xuống
+            else {
+              verticalOverlap = (playerBottom >= planeTop && playerBottom <= planeTop + 15); // Chỉ chạm mặt trên
+            }
+          } else {
+            // Normal obstacle collision (player lands on top)
+            const playerBottom = y + r;
+            verticalOverlap = playerBottom > actualTop;
+          }
+          
+          if (verticalOverlap) return o;
         }
       }
       return null;

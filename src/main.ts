@@ -196,9 +196,17 @@ async function init() {
   } catch (e) {}
 
   const PLAYER_X = 150;
-  const playerRadius = 28;
+  const playerRadius = 40; // Giảm từ 20 xuống 15 để tránh va chạm sai
   const PLAYER_SPAWN_LIFT = 80;
   let player: any = null;
+  
+  // Debug hitbox - circle (hidden)
+  const debugHitbox = new Graphics();
+  debugHitbox.circle(0, 0, playerRadius)
+    .fill({ color: 0xff0000, alpha: 0 })
+    .stroke({ color: 0xff0000, width: 0 });
+  debugHitbox.alpha = 0;
+  debugHitbox.visible = false;
   
   // Tạo nhân vật với graphics fallback trước - sẽ được thay thế bằng spine
   console.log('Creating initial character with red circle fallback');
@@ -218,6 +226,9 @@ async function init() {
   // Đảm bảo sprite visible và có alpha
   player.sprite.visible = true;
   player.sprite.alpha = 1;
+  
+  // Thêm debug hitbox
+  try { root.addChild(debugHitbox); } catch (e) { app.stage.addChild(debugHitbox); }
   player.sprite.x = PLAYER_X;
   
   // Add initial sprite to world with debug
@@ -832,6 +843,12 @@ async function init() {
     (app as any).__prevPlayerBottom = player.y + playerRadius;
 
     player.update(deltaSec, scroll, speed);
+    
+    // Update debug hitbox position
+    debugHitbox.x = player.worldX + (world.x || 0);
+    debugHitbox.y = player.y;
+    
+    const playerScreenX = player.worldX + (world.x || 0);
     try {
       const handler = (gameplay as any)._handler;
       const hw = handler && (handler as any).world ? (handler as any).world : null;
@@ -990,17 +1007,56 @@ async function init() {
     } catch (e) {}
 
     try {
-      const blocking = (gameplay as any).getBlockingObstacle ? (gameplay as any).getBlockingObstacle(player.worldX, player.y, playerRadius) : null;
+
+      // One-way platform collision check cho máy bay - truyền thêm velocity
+      const blocking = (gameplay as any).getBlockingObstacle ? (gameplay as any).getBlockingObstacle(player.worldX, player.y, playerRadius, player.vy) : null;
       if (blocking && !(blocking as any).isGround) {
-        try {} catch (e) {}
-        try {
-          try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-          try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-          playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-        } catch (e) {}
-        return;
+        
+        if ((blocking as any).isPlane) {
+          // --- LOGIC ĐƠN GIẢN CHO MÁY BAY DỰA TRÊN ĐỘ CAO ---
+          
+          const planeTop = blocking.sprite.y;
+          const planeBottom = planeTop + blocking.height;
+          const playerTop = player.y - playerRadius;
+          const playerBottom = player.y + playerRadius;
+          
+          // 1. Nếu cạnh dưới của plane cao hơn hitbox của player
+          // → player đi qua bình thường (không bị đẩy)
+          if (planeBottom < playerTop) {
+            return; // Không có collision, player đi qua
+          }
+          
+          // 2. Nếu hitbox player cao hơn cạnh trên của plane
+          // → player đứng trên máy bay
+          if (playerBottom > planeTop && playerTop < planeTop) {
+            try {
+              player.y = planeTop - playerRadius;  // Đặt player lên trên máy bay
+              player.vy = 0;                       // Dừng rơi
+              player.onGround = true;              // Cho phép nhảy tiếp
+            } catch (e) {}
+            return;
+          }
+          
+          // 3. Các trường hợp khác (collision bên cạnh) → đẩy player
+          try {
+            const planeLeft = blocking.x;
+            player.worldX = planeLeft - playerRadius - 2;
+            player.sprite.x = player.worldX;
+          } catch (e) {}
+          
+          return;
+        } else {
+          // Obstacle thông thường vẫn gây chết
+          try {} catch (e) {}
+          try {
+            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+            try { if (!(blocking as any)._hitPlayed) { tryPlayHitSound(); try { (blocking as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+            playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+          } catch (e) {}
+          return;
+        }
       }
     } catch (e) {}
 
@@ -1199,6 +1255,18 @@ async function init() {
   async function restartGame() {
     try { SoundController.stopAll(); } catch (e) {}
     
+    // RESET STATE NGAY LẬP TỨC để tránh trigger game over
+    gameOver = false;
+    playerDead = false;
+    controlsEnabled = false; // Tạm tắt controls trong khi restart
+    
+    // Clear queued game over
+    if (gameOverQueuedTimer) {
+      clearTimeout(gameOverQueuedTimer as any);
+      gameOverQueuedTimer = null;
+      gameOverQueuedReason = null;
+    }
+    
     // Xóa tất cả pickups
     try {
       for (const it of pickups) {
@@ -1249,14 +1317,25 @@ async function init() {
       try { lastDistanceThreshold = 0; } catch (e) {}
     } catch (e) {}
 
-    // Reset player state
+    // Reset player state TRƯỚC KHI startGame
     try {
       try { (world as any).x = 0; } catch (e) {}
-      try { player.worldX = PLAYER_X; player.vy = 0; playerDead = false; gameOver = false; controlsEnabled = true; prevScore = 0; score = 0; scoreText.text = `Score: ${score}`; } catch (e) {}
+      try { 
+        player.worldX = PLAYER_X; 
+        player.vy = 0; 
+        player.y = groundY - playerRadius; // Đặt player ở vị trí an toàn trên mặt đất
+        player.sprite.y = player.y; 
+        prevScore = 0; 
+        score = 0; 
+        scoreText.text = `Score: ${score}`;
+      } catch (e) {}
       try { if (player && typeof (player.setScreenScale) === 'function') player.setScreenScale && player.setScreenScale(1); } catch (e) {}
     } catch (e) {}
 
     try { await startGame(); } catch (e) {}
+    
+    // Bật lại controls sau khi startGame hoàn thành
+    controlsEnabled = true;
   }
 
   let controlsEnabled = false;
@@ -1343,7 +1422,7 @@ async function init() {
   }
 
   app.ticker.add(() => {
-    if (gameOver) return;
+    if (gameOver || !controlsEnabled) return; // Thêm check controlsEnabled để tránh trigger khi restart
     try {
       try {
         const overPit = (gameplay as any).isOverPit ? (gameplay as any).isOverPit(player.worldX) : false;

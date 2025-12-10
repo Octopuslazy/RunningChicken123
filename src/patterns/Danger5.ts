@@ -55,7 +55,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
     }
 
     // collect obstacles for MapHandler (plane platform + any others)
-    const patternObstacles: { x: number; width: number; height: number; isGround?: boolean; isPlane?: boolean }[] = [];
+    const patternObstacles: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean }[] = [];
 
     // decorative plane centered above the mid section
     try {
@@ -66,7 +66,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         // scale the plane up x2 as requested
         ps.scale.set(2.5, 2.5);
         ps.x = midStart + Math.floor(length / 2);
-        ps.y = -430;
+        ps.y = -600;
         ps.zIndex = 900;
         // mark sprite so main ticker can find and animate it
         (ps as any).__isPatternPlane = true;
@@ -76,14 +76,21 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         container.addChild(ps);
 
         const texW = (planeTex as any).width || 240;
-        const gw = texW * (ps.scale.x || 1);
+        const gw = texW * (ps.scale.x || 1); // Chiều dài toàn bộ máy bay đã scale
         const gh = 28; // thin platform collider height
-        const leftX = ps.x - gw * ps.anchor.x;
+        
+        // Đặt collider ở giữa máy bay (ps.x là center vì anchor.x = 0.5)
+        const leftX = ps.x - gw / 2; // Collider từ center trừ đi nửa chiều rộng
+        
+        // Tính vị trí Y thực của collider (máy bay có anchor.y = 1, nên ps.y là bottom)
+        const colliderY = ps.y; // Máy bay ở -600, collider cũng ở -600
+        
         // store metadata so main can match collider entries later
         (ps as any).__platformLocalLeft = leftX;
         (ps as any).__platformWidth = gw;
         (ps as any).__platformHeight = gh;
-        patternObstacles.push({ x: leftX, width: gw, height: gh, isGround: true, isPlane: true });
+        (ps as any).__platformY = colliderY; // Lưu Y position riêng cho debug
+        patternObstacles.push({ x: leftX, width: gw, height: gh, y: colliderY, isGround: true, isPlane: true });
       }
     } catch (e) {}
     try {
