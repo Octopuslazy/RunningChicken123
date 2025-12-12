@@ -12,6 +12,7 @@ import makeDanger5 from './patterns/Danger5';
 import Pickup from './prefabs/Pickup';
 import SoundController from './sound/SoundController';
 import showGameOver from './ui/gameOver';
+import PlayerShadow from './shadow';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -239,6 +240,8 @@ async function init() {
   try { if (player && player.sprite && (player.sprite as any).scale) { (player.sprite as any).scale.x *= 0.5; (player.sprite as any).scale.y *= 0.5; } } catch (e) {}
   
   world.addChild(player.sprite);
+  // playerShadowInstance will be created when gameplay is initialized
+  let playerShadowInstance: any = null;
   try {
     if (player && typeof player.jump === 'function') {
       const _origJump = player.jump.bind(player);
@@ -597,6 +600,11 @@ async function init() {
         try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
       } catch (e) {}
 
+        // Create player shadow instance now that gameplay exists
+        try {
+          try { if (!playerShadowInstance) playerShadowInstance = new PlayerShadow({ world, gameplay, player, playerRadius, groundY }); } catch (e) { playerShadowInstance = null; }
+        } catch (e) {}
+
       // Tạo patterns sau khi đã có gameplay
       try {
         const handler = (gameplay as any)._handler;
@@ -924,6 +932,12 @@ async function init() {
             }
           } catch (e) {}
         }
+      }
+    } catch (e) {}
+    // Update player shadow (delegated to PlayerShadow instance)
+    try {
+      if (playerShadowInstance && typeof playerShadowInstance.update === 'function') {
+        try { playerShadowInstance.update(); } catch (e) {}
       }
     } catch (e) {}
 
@@ -1310,6 +1324,9 @@ async function init() {
       }
       spawnedPatternContainers.length = 0;
     } catch (e) {}
+
+    // Destroy player shadow if present so it can be recreated cleanly
+    try { if (playerShadowInstance && typeof playerShadowInstance.destroy === 'function') { try { playerShadowInstance.destroy(); } catch (e) {} } playerShadowInstance = null; } catch (e) {}
 
     // XÓA TẤT CẢ CHILDREN TRONG WORLD (trừ background và player)
     try {
