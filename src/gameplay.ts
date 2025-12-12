@@ -14,6 +14,9 @@ export interface PatternData {
   // optional obstacles described in local coordinates. MapHandler will
   // convert these to world coordinates and create invisible hitboxes.
   obstacles?: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean; planeId?: number; layer?: string }[];
+  // When true the pattern does not create a continuous ground collider
+  // across its visual width (useful for floating-platform patterns).
+  noGround?: boolean;
   // optional preferred player Y offset (local to container). If provided
   // MapHandler will use `container.y + playerYOffset` as the standing
   // surface for the player when on this pattern.
@@ -103,36 +106,39 @@ export class MapHandler {
       // so that local y=0 is the surface/top of the ground in many patterns)
       const worldGroundTop = p.container.y;
 
-      // record pattern span including its top Y (adjusted to the collider's
-      // top so surface queries reflect the collider) and any playerYOffset
-      // suggested by the pattern.
-      const topForSurface = worldGroundTop - (this.groundThickness || 0);
+      // record pattern span. If the pattern requests `noGround` we do not
+      // create the continuous ground collider and we leave `top` undefined
+      // so callers can fallback to per-obstacle platform lookups.
+      const topForSurface = p.noGround ? undefined : (worldGroundTop - (this.groundThickness || 0));
       this.patterns.push({ start: visualStart, length: visualLength, top: topForSurface, playerYOffset: p.playerYOffset ?? 0 });
 
       // create a thin ground collider across the visual width of the pattern
-      // so characters and physics can interact with the pattern surface.
-      try {
-        const groundThickness = this.groundThickness || 8;
-        const gcol = new Graphics();
-        gcol.clear();
+      // so characters and physics can interact with the pattern surface. Skip
+      // this for patterns that explicitly request no ground (floating
+      // platforms).
+      if (!p.noGround) {
         try {
-          if (typeof (gcol as any).fill === 'function') {
-            try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { /* some builds accept object signature */ try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
-          } else {
-            (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
-          }
-        } catch (e) {}
-        try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
-        // endFill not required in v8; if only old API exists, call endFill for safety
-        try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
-        gcol.x = visualStart;
-        // position collider so its bottom aligns with the visual top of ground
-        gcol.y = worldGroundTop - groundThickness;
-        gcol.visible = this.hitboxDebug;
-        this.obstaclesContainer.addChild(gcol);
-        this.obstacles.push({ x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any);
-      } catch (e) {
-        // ignore collider creation errors
+          const groundThickness = this.groundThickness || 8;
+          const gcol = new Graphics();
+          gcol.clear();
+          try {
+            if (typeof (gcol as any).fill === 'function') {
+              try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { /* some builds accept object signature */ try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
+            } else {
+              (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
+            }
+          } catch (e) {}
+          try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
+          try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
+          gcol.x = visualStart;
+          // position collider so its bottom aligns with the visual top of ground
+          gcol.y = worldGroundTop - groundThickness;
+          gcol.visible = this.hitboxDebug;
+          this.obstaclesContainer.addChild(gcol);
+          this.obstacles.push({ x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any);
+        } catch (e) {
+          // ignore collider creation errors
+        }
       }
 
       // register pits declared by the pattern (translate to world coords)
@@ -237,8 +243,23 @@ export class MapHandler {
     // prefer pattern-specific top Y if available
     for (const pat of this.patterns) {
       if (worldX >= pat.start && worldX <= pat.start + pat.length) {
-        const top = pat.top ?? (this.groundY + this.patternYOffset);
-        return top + (pat.playerYOffset ?? 0);
+        // If pattern provides a top (continuous ground), use it.
+        if (pat.top !== undefined) {
+          return pat.top + (pat.playerYOffset ?? 0);
+        }
+        // Otherwise, check for platform obstacles inside this pattern
+        for (const o of this.obstacles) {
+          try {
+            const left = o.x; const right = o.x + o.width;
+            if (worldX >= left && worldX <= right) {
+              if ((o as any).isPlatform || (o as any).isPlane) {
+                return o.sprite.y;
+              }
+            }
+          } catch (e) {}
+        }
+        // no platform at this X; fall back to default ground
+        return this.groundY;
       }
     }
     return this.groundY;

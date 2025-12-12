@@ -9,6 +9,7 @@ import makeDanger2 from './patterns/Danger2';
 import makeDanger3 from './patterns/Danger3';
 import makeDanger4 from './patterns/Danger4';
 import makeDanger5 from './patterns/Danger5';
+import makeDanger6 from './patterns/Danger6';
 import Pickup from './prefabs/Pickup';
 import SoundController from './sound/SoundController';
 import showGameOver from './ui/gameOver';
@@ -516,6 +517,10 @@ async function init() {
     try { await loadTexture('/Assets/_arts/bg_1_groundmid.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_groundleft.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_groundright.png'); } catch (e) {}
+    try { await loadTexture('/Assets/_arts/bg_1_platformmid.png'); } catch (e) {}
+    try { await loadTexture('/Assets/_arts/platform.png'); } catch (e) {}
+    try { await loadTexture('/Assets/_arts/bg_1_platformleft.png'); } catch (e) {}
+    try { await loadTexture('/Assets/_arts/bg_1_platformright.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_store3.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_light.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/effect_double jump.png'); } catch (e) {}
@@ -616,9 +621,10 @@ async function init() {
         const PATTERN_LENGTH = 750;
         const PROB_USE_DANGER = 0.70;
         const PROB_USE_DANGER_AFTER = 0.85;
-        const DANGER_WEIGHTS = { d1: 0.3, d2: 0.2, d3: 0.3, d4: 0.2, d5: 0.3 };
+        const DANGER_WEIGHTS = { d1: 0.3, d2: 0.2, d3: 0.3, d4: 0.2, d5: 0.3, d6: 0.3 };
         const DANGER3_LENGTH = 300;
         const DANGER4_LENGTH = 1200;
+        const DANGER6_LENGTH = 2800;
         const DISTANCE_NORMAL_START = 4500;
 
         let cursorX = 0;
@@ -627,18 +633,24 @@ async function init() {
           const probUseDangerNow = (cursorX >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
           let factory: any = null;
           if (Math.random() < probUseDangerNow) {
-            const r = Math.random();
             const includeD5 = cursorX >= DISTANCE_NORMAL_START;
-            const total = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4 + (includeD5 ? DANGER_WEIGHTS.d5 : 0)) || 1;
-            const t1 = DANGER_WEIGHTS.d1 / total;
-            const t2 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2) / total;
-            const t3 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3) / total;
-            const t4 = (DANGER_WEIGHTS.d1 + DANGER_WEIGHTS.d2 + DANGER_WEIGHTS.d3 + DANGER_WEIGHTS.d4) / total;
-            if (r < t1) { factory = makeDanger1({ leftEnd: true, rightEnd: true, length }); }
-            else if (r < t2) { factory = makeDanger2({ leftEnd: true, rightEnd: true, length }); }
-            else if (r < t3) { factory = makeDanger4({ leftEnd: true, rightEnd: true, length: DANGER4_LENGTH }); }
-            else if (r < t4) { factory = makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH }); }
-            else { factory = makeDanger5({ leftEnd: true, rightEnd: true, length }); }
+            const entries: { w: number; fn: () => any }[] = [
+              { w: DANGER_WEIGHTS.d1, fn: () => makeDanger1({ leftEnd: true, rightEnd: true, length }) },
+              { w: DANGER_WEIGHTS.d2, fn: () => makeDanger2({ leftEnd: true, rightEnd: true, length }) },
+              { w: DANGER_WEIGHTS.d3, fn: () => makeDanger3({ leftEnd: true, rightEnd: true, length: DANGER3_LENGTH }) },
+              { w: DANGER_WEIGHTS.d4, fn: () => makeDanger4({ leftEnd: true, rightEnd: true, length: DANGER4_LENGTH }) },
+              { w: includeD5 ? DANGER_WEIGHTS.d5 : 0, fn: () => makeDanger5({ leftEnd: true, rightEnd: true, length }) },
+              { w: DANGER_WEIGHTS.d6, fn: () => makeDanger6({ leftEnd: true, rightEnd: true, length: DANGER6_LENGTH }) },
+            ];
+            const total = entries.reduce((s, e) => s + (e.w || 0), 0) || 1;
+            let r2 = Math.random() * total;
+            let picked: any = null;
+            for (const e of entries) {
+              if (!e.w) continue;
+              if (r2 < e.w) { picked = e.fn(); break; }
+              r2 -= e.w;
+            }
+            factory = picked || entries.find(e => (e.w || 0) > 0)?.fn() || makeGroundPattern({ leftEnd: true, rightEnd: true, length });
           } else {
             factory = makeGroundPattern({ leftEnd: true, rightEnd: true, length });
           }
@@ -851,7 +863,7 @@ async function init() {
     try {
       if (!playerDead && !gameOver) {
         const playerScreenX = player.worldX + (world.x || 0);
-        const leftBoundary = -playerRadius; // Cho phép player ra ngoài một chút trước khi game over
+        const leftBoundary = -playerRadius - 500; // Cho phép player ra ngoài một chút trước khi game over
         
         if (playerScreenX < leftBoundary) {
           console.log('Player went off screen left, game over!');
@@ -898,7 +910,11 @@ async function init() {
               try {
                 if (child && (child as any).__isPatternPlane) {
                   const ps: any = child;
-                  ps.x += (ps.__vx || -220) * deltaSec;
+                  // Respect explicit zero velocities: only fall back to default
+                  // when __vx is undefined/null. Using `||` treats 0 as falsy
+                  // which caused stationary platforms to still move.
+                  const vx = (ps.__vx !== undefined && ps.__vx !== null) ? ps.__vx : -220;
+                  ps.x += vx * deltaSec;
 
                   const gw = ps.__platformWidth || ((ps.texture && (ps.texture as any).width) * (ps.scale.x || 1));
                   const gh = ps.__platformHeight || 28;
@@ -911,18 +927,22 @@ async function init() {
                   const obstacleLocalLeft = planeLocalCenterX - gw / 2;
 
                   // Update plane collision position for moving platform
-                  const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
+                  const platforms = (gameplay as any).getPlatforms ? (gameplay as any).getPlatforms() : [];
+                  const obstacles = [ ...(platforms || []), ...((gameplay as any).getObstacles ? (gameplay as any).getObstacles() : []) ];
                   for (const o of obstacles) {
                     try {
                       if (!o || !o.sprite) continue;
-                      if ((o as any).isPlane && (o as any).planeId === ps.__planeId) {
+                      // match by planeId for both planes and platforms
+                      if ((o as any).planeId !== undefined && (o as any).planeId === ps.__planeId) {
                         const worldLeft = (patContainer.x || 0) + obstacleLocalLeft;
-                        const originalY = (patContainer.y || 0) + (ps.__platformY || ps.y);
-                        
-                        // Update collision bounds
+
+                        // Update collision bounds (only update horizontal position).
+                        // Do NOT override `o.sprite.y` here — MapHandler set the
+                        // collider Y correctly when creating the platform. Overriding
+                        // it caused vertical misalignment where platforms appeared
+                        // decorative but had no blocking collider.
                         o.x = worldLeft;
                         o.sprite.x = worldLeft;
-                        o.sprite.y = originalY;
                         break;
                       }
                     } catch (e) {}
@@ -1018,7 +1038,33 @@ async function init() {
     } catch (e) {}
 
     try {
-      const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
+      const platforms = (gameplay as any).getPlatforms ? (gameplay as any).getPlatforms() : [];
+      // Sweep-test fallback: detect fast falls that cross a platform between
+      // the previous frame and current frame and land the player.
+      try {
+        const prevBottom = (app as any).__prevPlayerBottom !== undefined ? (app as any).__prevPlayerBottom : (player.y + playerRadius);
+        const currBottom = player.y + playerRadius;
+        if (currBottom > prevBottom) { // only when moving downward
+          for (const p of platforms) {
+            try {
+              const left = p.x; const right = p.x + p.width;
+              if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
+                const platformTop = p.sprite.y;
+                if (prevBottom <= platformTop && currBottom >= platformTop) {
+                  // Land on platform
+                  player.y = platformTop - playerRadius;
+                  player.vy = 0;
+                  player.onGround = true;
+                  try { if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+                  player.sprite.y = player.y;
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+
+      const obstacles = [ ...(platforms || []), ...((gameplay as any).getObstacles ? (gameplay as any).getObstacles() : []) ];
       for (const o of obstacles) {
         const left = o.x;
         const right = o.x + o.width;
@@ -1033,9 +1079,11 @@ async function init() {
         } catch (e) {}
         if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
           const obstacleTop = o.sprite.y;
+          // debug log removed
           const prevBottom = (app as any).__prevPlayerBottom !== undefined ? (app as any).__prevPlayerBottom : (player.y + playerRadius);
           const currBottom = player.y + playerRadius;
-          if (prevBottom <= obstacleTop && currBottom >= obstacleTop && player.vy >= 0) {
+          const LANDING_TOLERANCE = 24; // pixels to tolerate fast falls (prevents tunneling)
+          if (prevBottom <= obstacleTop + LANDING_TOLERANCE && currBottom >= obstacleTop - 1 && player.vy >= 0) {
             player.y = obstacleTop - playerRadius;
             player.vy = 0;
             player.onGround = true;
@@ -1043,7 +1091,10 @@ async function init() {
             player.sprite.y = player.y;
             try {
               // Chỉ layer Danger mới gây chết, layer UI chỉ block
-              if (!(o as any).isGround && (o as any).layer === 'Danger') {
+              // Exclude plane/platform decorations from causing death even if
+              // their layer is 'Danger' — they should block but not kill when
+              // the player is merely pushed into them.
+              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform) {
                 try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
@@ -1058,6 +1109,7 @@ async function init() {
             // distance out of the obstacle (symmetric) so the player cannot
             // pass through. This avoids large forced snaps while ensuring
             // blocking behavior.
+            let _penetrationForDeath = 0;
             try {
               const playerLeft = player.worldX - playerRadius;
               const playerRight = player.worldX + playerRadius;
@@ -1070,8 +1122,10 @@ async function init() {
                 const EPS = 1;
                 if (overlapFromLeft < overlapFromRight) {
                   player.worldX -= (overlapFromLeft + EPS);
+                  _penetrationForDeath = overlapFromLeft;
                 } else {
                   player.worldX += (overlapFromRight + EPS);
+                  _penetrationForDeath = overlapFromRight;
                 }
               }
             } catch (e) {}
@@ -1081,7 +1135,10 @@ async function init() {
 
             try {
               // Only layer 'Danger' should trigger death; 'UI' planes only block
-              if (!(o as any).isGround && (o as any).layer === 'Danger') {
+              // Exclude planes/platforms from lethal death on side-contact push.
+              // Require a minimum horizontal penetration so short pushes don't kill.
+              const LETHAL_PENETRATION = 20; // pixels
+              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform && _penetrationForDeath > LETHAL_PENETRATION) {
                 try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
                 try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
@@ -1109,16 +1166,17 @@ async function init() {
         let shouldShowRun = false;
         
         if (player.onGround) {
-          const obstacles = (gameplay as any).getObstacles ? (gameplay as any).getObstacles() : [];
+          const platforms = (gameplay as any).getPlatforms ? (gameplay as any).getPlatforms() : [];
+          const obstacles = [ ...(platforms || []), ...((gameplay as any).getObstacles ? (gameplay as any).getObstacles() : []) ];
           const playerBottom = player.y + playerRadius;
-          
+
           for (const o of obstacles) {
             const left = o.x;
             const right = o.x + o.width;
             if (player.worldX + playerRadius > left && player.worldX - playerRadius < right) {
               const obstacleTop = o.sprite.y;
-              // Treat ground and plane colliders as valid 'running' surfaces
-              if (Math.abs(playerBottom - obstacleTop) <= 8 && (o.isGround || (o as any).isPlane)) {
+              // Treat ground, platform and plane colliders as valid 'running' surfaces
+              if (Math.abs(playerBottom - obstacleTop) <= 8 && (o.isGround || (o as any).isPlane || (o as any).isPlatform)) {
                 shouldShowRun = true;
                 break;
               }
