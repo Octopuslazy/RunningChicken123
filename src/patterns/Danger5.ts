@@ -87,7 +87,7 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const leftX = ps.x - gw / 2; // Collider từ center trừ đi nửa chiều rộng
         
         // Tính vị trí Y thực của collider (máy bay có anchor.y = 1, nên ps.y là bottom)
-        const colliderY = ps.y-50; // Máy bay ở -550
+        const colliderY = ps.y - 80; // Máy bay ở cao hơn
         
         // Store metadata for collision system
         (ps as any).__platformLocalLeft = leftX;

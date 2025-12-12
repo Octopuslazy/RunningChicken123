@@ -92,9 +92,13 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const gw = texW * ds.scale.x;
         const gh = texH * ds.scale.y;
         const leftX = ds.x - gw * ds.anchor.x;
-        // no outline: obstacle collider will be created by MapHandler
+        // Increase obs_1 collider thickness by 1.5x so collisions are more forgiving
+        const colliderMultiplier = 1.5;
+        const obsColliderH = Math.round(gh * colliderMultiplier);
+        // place collider so its top aligns with sprite bottom (container-local coords)
+        const colliderY = ds.y - obsColliderH;
 
-        patternObstacles.push({ x: leftX, width: gw, height: gh, layer: 'Danger' } as any);
+        patternObstacles.push({ x: leftX, width: gw, height: obsColliderH, y: colliderY, layer: 'Danger', debugColor: 0xff8800, debugAlpha: 0.5 } as any);
       }
     } catch (e) {}
     try {
@@ -117,9 +121,11 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
         const gw = texW * ds.scale.x;
         const gh = texH * ds.scale.y;
         const leftX = ds.x - gw * ds.anchor.x;
-        // no outline: obstacle collider will be created by MapHandler
-
-        patternObstacles.push({ x: leftX, width: gw, height: gh, layer: 'Danger' } as any);
+        // Increase obs_1 collider thickness by 1.5x so collisions are more forgiving
+        const colliderMultiplier = 1.5;
+        const obsColliderH2 = Math.round(gh * colliderMultiplier);
+        const colliderY2 = ds.y - obsColliderH2;
+        patternObstacles.push({ x: leftX, width: gw, height: obsColliderH2, y: colliderY2, layer: 'Danger', debugColor: 0xff8800, debugAlpha: 0.5 } as any);
       }
     } catch (e) {}
      try {

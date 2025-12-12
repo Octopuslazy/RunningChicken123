@@ -148,7 +148,9 @@ export class MapHandler {
           const gx = startX + ob.x;
           // apply configured padding to obstacle collider height so obstacles
           // (like obs_1) can have thicker, more forgiving hitboxes for gameplay
-          const gh = (ob.height || 0) + (this.obstaclePadding || 0);
+          const baseGh = (ob.height || 0) + (this.obstaclePadding || 0);
+          // If this obstacle is a plane, scale its collider height by 1.5
+          const gh = (ob as any).isPlane ? Math.round(baseGh * 1.5) : baseGh;
           const gw = ob.width;
           const g = new Graphics();
           // draw hitbox; visibility controlled by hitboxDebug for debugging
@@ -157,8 +159,9 @@ export class MapHandler {
           try {
             const showHitbox = this.hitboxDebug || (ob as any).isPlane;
             if (showHitbox) {
-              const color = (ob as any).isPlane ? 0x0099ff : 0xff0000;
-              const alpha = (ob as any).isPlane ? 0.4 : 0.25;
+              // Prefer obstacle-provided debugColor/debugAlpha when available
+              const color = (ob as any).debugColor !== undefined ? (ob as any).debugColor : ((ob as any).isPlane ? 0x0099ff : 0xff0000);
+              const alpha = (ob as any).debugAlpha !== undefined ? (ob as any).debugAlpha : ((ob as any).isPlane ? 0.4 : 0.25);
               
               if (typeof (g as any).fill === 'function') {
                 try { (g as any).fill(color, alpha); } catch (e) { try { (g as any).fill({ color: color, alpha: alpha }); } catch (e) {} }
@@ -173,7 +176,11 @@ export class MapHandler {
           // place hitbox
           g.x = gx;
           if ((ob as any).isPlane && ob.y !== undefined) {
-            g.y = p.container.y + ob.y;
+            // Center the expanded plane collider around the original local y
+            // so the plane's visual position doesn't appear to shift.
+            const originalGh = baseGh;
+            const extra = gh - originalGh;
+            g.y = p.container.y + ob.y - 30 - Math.round(extra / 2);
           } else {
             g.y = worldGroundTop - gh;
           }
