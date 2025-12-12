@@ -1163,7 +1163,17 @@ async function init() {
         const baseSpeed = 200;
         let ts = (playerMoveSpeed - 180) / baseSpeed;
         if (!isFinite(ts) || ts <= 0) ts = 0.5;
-        ts = Math.min(Math.max(ts, 1), 2.2);
+
+        // Scale the amount above 1 proportionally to the current camera scale
+        // so animation speed increases/decreases with camera percentage
+        const cam = (typeof currentScale === 'number' && currentScale > 0) ? currentScale : 1;
+        ts = (1 + (ts - 1) * cam)*0.2;
+
+        // Clamp to a sensible range; allow max to grow with camera a bit
+        const MIN_TS = 0.7;
+        const MAX_TS = 2.2 * Math.max(1, cam);
+        ts = Math.min(Math.max(ts, MIN_TS), MAX_TS);
+
         spinePlayerInstance.setTimeScale(ts);
       }
     } catch (e) {}
