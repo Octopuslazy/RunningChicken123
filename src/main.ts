@@ -1163,12 +1163,18 @@ async function init() {
         const now = (performance && performance.now) ? performance.now() : Date.now();
         const t = now - _invincibleBlinkStart;
         const phase = Math.floor(t / INVINCIBLE_BLINK_PERIOD) % 2;
-        const a = phase ? INVINCIBLE_BLINK_ALPHA : 1;
-        try { if (player && player.sprite) player.sprite.alpha = a; } catch (e) {}
+        const show = !!phase; // toggle visible for clearer blink
+        try {
+          if (player && player.sprite) player.sprite.visible = show;
+          if (spinePlayerInstance && spinePlayerInstance.view) spinePlayerInstance.view.visible = show;
+        } catch (e) {}
       } else {
         if (_prevPlayerInvincible) {
           _prevPlayerInvincible = false;
-          try { if (player && player.sprite) player.sprite.alpha = 1; } catch (e) {}
+          try {
+            if (player && player.sprite) player.sprite.visible = true;
+            if (spinePlayerInstance && spinePlayerInstance.view) spinePlayerInstance.view.visible = true;
+          } catch (e) {}
         }
       }
     } catch (e) {}
