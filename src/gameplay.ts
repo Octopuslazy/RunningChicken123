@@ -313,8 +313,9 @@ export class MapHandler {
       this.obstacles.push(ob);
     }
 
-    // cleanup obstacles behind camera
-    while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 800)) {
+    // cleanup obstacles behind camera (keep them further back to avoid
+    // premature deletion when the camera/player is pushed back)
+    while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 5000)) {
       try { this.obstaclesContainer.removeChild(this.obstacles[0].sprite); } catch (e) {}
       this.obstacles.shift();
     }

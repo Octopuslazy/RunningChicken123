@@ -946,7 +946,7 @@ async function init() {
   } catch (e) {}
 
   let currentScale = 1;
-  const PLAYER_SPEED_FACTOR = 1.015;
+  const PLAYER_SPEED_FACTOR = 1.0;
 
     app.ticker.add(() => {
     const deltaSec = (app.ticker as any).deltaMS / 1000;
@@ -972,28 +972,7 @@ async function init() {
       player.worldX += playerMoveSpeed * deltaSec;
     }
 
-    // Kiểm tra player có ra khỏi màn hình bên trái không
-    try {
-      if (!playerDead && !gameOver) {
-        const playerScreenX = player.worldX + (world.x || 0);
-        const leftBoundary = -playerRadius - 500; // Cho phép player ra ngoài một chút trước khi game over
-        
-        if (playerScreenX < leftBoundary) {
-          if (!deathHandled) {
-            deathHandled = true;
-            console.log('Player went off screen left, game over!');
-            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-            try { doGameOver && doGameOver('fell-behind', true); } catch (e) { 
-              try { doGameOver && doGameOver('fell-behind'); } catch (e) {} 
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Error checking left boundary:', e);
-    }
+    // Left-boundary death removed: player will not die when pushed left.
 
     (app as any).__prevPlayerBottom = player.y + playerRadius;
 
@@ -1075,6 +1054,20 @@ async function init() {
       if (playerShadowInstance && typeof playerShadowInstance.update === 'function') {
         try { playerShadowInstance.update(); } catch (e) {}
       }
+    } catch (e) {}
+
+    // Camera follow: keep player at 1/3 of screen X and sync handler scroll
+    try {
+      const TARGET_SCREEN_X = Math.round(WIDTH / 3);
+      const desiredScroll = (player && typeof player.worldX === 'number') ? (player.worldX - TARGET_SCREEN_X) : scroll;
+      try { world.x = -desiredScroll; } catch (e) {}
+      try {
+        const handler = (gameplay as any)?._handler;
+        if (handler) {
+          try { handler.scroll = desiredScroll; } catch (e) {}
+          try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+        }
+      } catch (e) {}
     } catch (e) {}
 
     try {
