@@ -1,5 +1,147 @@
 import { Graphics, Sprite, Texture } from 'pixi.js';
 
+// Lightweight particle "emitter" used for double-jump visual effect.
+// Inlined emitter (2).json config
+const DEFAULT_EMITTER_CONFIG = {
+  alpha: { start: 1, end: 0.65 },
+  scale: { start: 0.5, end: 0.1, minimumScaleMultiplier: 1 },
+  color: { start: '#e4f9ff', end: '#3fcbff' },
+  speed: { start: 10, end: 5, minimumSpeedMultiplier: 1 },
+  acceleration: { x: 0, y: 0 },
+  maxSpeed: 0,
+  startRotation: { min: 0, max: 0 },
+  noRotation: false,
+  rotationSpeed: { min: 0, max: 0 },
+  lifetime: { min: 0.2, max: 0.8 },
+  blendMode: 'normal',
+  frequency: 0.2,
+  emitterLifetime: 1,
+  maxParticles: 5,
+  pos: { x: 0, y: 0 },
+  addAtBack: false,
+  spawnType: 'point'
+};
+
+// `pos` may be either `{x:number,y:number}` or a function returning that object.
+function spawnDoubleJumpEmitter(parent: any, pos: any, yArg?: number, durationMs = 1000) {
+  try {
+    const FLAG = '__doubleJumpEmitterActive';
+    if (parent && (parent as any)[FLAG]) return;
+    if (parent) try { (parent as any)[FLAG] = true; } catch (e) {}
+
+    const cfg = DEFAULT_EMITTER_CONFIG;
+    const tex = Texture.from('/Assets/_arts/effect_double jump.png');
+    const container = parent || null;
+
+    // make effect run 2x faster: halve interval (double spawn rate)
+    const freqMs = (typeof cfg.frequency === 'number' ? cfg.frequency * 1000 : 100) / 2;
+    const maxParticles = typeof cfg.maxParticles === 'number' ? Math.max(1, Math.floor(cfg.maxParticles)) : 10;
+    // halve particle lifetime to speed up animation
+    const lifetimeMin = cfg.lifetime && typeof cfg.lifetime.min === 'number' ? (cfg.lifetime.min * 1000) / 2 : 200;
+    const lifetimeMax = cfg.lifetime && typeof cfg.lifetime.max === 'number' ? (cfg.lifetime.max * 1000) / 2 : 800;
+    const alphaStart = cfg.alpha && typeof cfg.alpha.start === 'number' ? cfg.alpha.start : 1;
+    const alphaEnd = cfg.alpha && typeof cfg.alpha.end === 'number' ? cfg.alpha.end : 0.6;
+    // scale effect up 2x
+    const scaleStart = (cfg.scale && typeof cfg.scale.start === 'number' ? cfg.scale.start : 0.5) * 2;
+    const scaleEnd = (cfg.scale && typeof cfg.scale.end === 'number' ? cfg.scale.end : 0.1) * 2;
+    const rotMin = cfg.startRotation && typeof cfg.startRotation.min === 'number' ? cfg.startRotation.min : 0;
+    const rotMax = cfg.startRotation && typeof cfg.startRotation.max === 'number' ? cfg.startRotation.max : 360;
+    // double particle speed for faster motion
+    const speedStart = (cfg.speed && typeof cfg.speed.start === 'number' ? cfg.speed.start : 50) * 2;
+
+    let activeCount = 0;
+    const endAt = (performance && performance.now) ? performance.now() + durationMs : Date.now() + durationMs;
+
+    let iv: any = null;
+    const cleanup = () => {
+      try { if (iv) clearInterval(iv); } catch (e) {}
+      try { if (parent) (parent as any)[FLAG] = false; } catch (e) {}
+      try { if (parent) delete (parent as any)['__doubleJumpEmitterStop']; } catch (e) {}
+    };
+
+    // expose a stop hook on the parent so callers can cancel the emitter early
+    try { if (parent) (parent as any)['__doubleJumpEmitterStop'] = cleanup; } catch (e) {}
+
+    iv = setInterval(() => {
+      const now = (performance && performance.now) ? performance.now() : Date.now();
+      if (now >= endAt) { clearInterval(iv); return; }
+
+      // spawn a few particles but don't exceed maxParticles
+      const spawnCount = Math.min(3, Math.max(1, maxParticles - activeCount));
+      // determine current emitter origin (supports function getter)
+      let originX = 0;
+      let originY = 0;
+      if (typeof pos === 'function') {
+        try { const o = pos(); if (o) { originX = o.x; originY = o.y; } } catch (e) {}
+      } else if (pos && typeof pos === 'object') {
+        originX = pos.x !== undefined ? pos.x : 0;
+        originY = pos.y !== undefined ? pos.y : (yArg !== undefined ? yArg : 0);
+      } else {
+        originX = (typeof pos === 'number' ? pos : 0);
+        originY = (typeof yArg === 'number' ? yArg : 0);
+      }
+
+      for (let i = 0; i < spawnCount; i++) {
+        try {
+          const p = new Sprite(tex as any);
+          p.anchor && p.anchor.set ? p.anchor.set(0.5, 0.5) : null;
+
+          // position around current origin with slight offset so it follows player
+          const ox = (Math.random() - 0.5) * 10;
+          const oy = (Math.random() - 0.5) * 10;
+          p.x = originX + ox;
+          p.y = originY + oy;
+
+          const s = scaleStart + Math.random() * (Math.max(0, scaleEnd - scaleStart));
+          try { p.scale.set(s, s); } catch (e) {}
+          p.alpha = alphaStart;
+          try { if (container && typeof container.addChild === 'function') container.addChild(p); }
+          catch (e) { try { (parent as any).addChild(p); } catch (e) {} }
+
+          activeCount++;
+          const life = lifetimeMin + Math.random() * (lifetimeMax - lifetimeMin);
+          const startTime = (performance && performance.now) ? performance.now() : Date.now();
+
+          // compute velocity from random start rotation & speed
+          const angDeg = rotMin + Math.random() * (rotMax - rotMin);
+          const ang = angDeg * (Math.PI / 180);
+          const spd = speedStart;
+          const vx = Math.cos(ang) * spd;
+          const vy = Math.sin(ang) * spd;
+
+          let last = startTime;
+          function step(nowTime: number) {
+            try {
+              const t = Math.min(1, (nowTime - startTime) / life);
+              const dt = (nowTime - last) / 1000;
+              last = nowTime;
+              try { p.x += vx * dt; p.y += vy * dt; } catch (e) {}
+              try { p.alpha = alphaStart + (alphaEnd - alphaStart) * t; } catch (e) {}
+              try {
+                const sc = scaleStart + (scaleEnd - scaleStart) * t;
+                p.scale.set(sc, sc);
+              } catch (e) {}
+              if (t < 1) requestAnimationFrame(step);
+              else { try { p.parent && p.parent.removeChild(p); } catch (e) {} ; activeCount--; }
+            } catch (e) { try { p.parent && p.parent.removeChild(p); } catch (e) {} ; activeCount--; }
+          }
+          requestAnimationFrame(step);
+        } catch (e) {}
+      }
+    }, Math.max(16, Math.floor(freqMs)));
+
+      // ensure flag cleared after duration
+    try {
+      setTimeout(() => {
+        try { cleanup(); } catch (e) {}
+      }, durationMs + 50);
+    } catch (e) {}
+  } catch (e) {
+    try { if (parent) (parent as any)["__doubleJumpEmitterActive"] = false; } catch (ee) {}
+    try { if (parent) delete (parent as any)['__doubleJumpEmitterStop']; } catch (ee) {}
+  }
+}
+
 export interface Player {
   sprite: Sprite | Graphics;
   worldX: number;
@@ -136,56 +278,10 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
         if (!wasOnGround) {
           try {
             const parent: any = (this.sprite as any).parent;
-            const tex = Texture.from('/Assets/_arts/effect_double jump.png');
-
-            // main effect (original size)
-            const eff = new Sprite(tex);
-            eff.anchor.set(0.5, 0.5);
-            eff.x = this.worldX - 40;
-            eff.y = this.y;
-            eff.alpha = 1;
-
-            // second effect (scaled 0.6) placed slightly further back
-            const eff2 = new Sprite(tex);
-            eff2.anchor.set(0.5, 0.5);
-            eff2.x = this.worldX - 60;
-            eff2.y = this.y + 4;
-            eff2.alpha = 0.95;
-            eff2.scale.set(0.6, 0.6);
-
-            // third effect (scaled 0.3) placed further back for depth
-            const eff3 = new Sprite(tex);
-            eff3.anchor.set(0.5, 0.5);
-            eff3.x = this.worldX - 80;
-            eff3.y = this.y + 6;
-            eff3.alpha = 0.9;
-            eff3.scale.set(0.3, 0.3);
-
-            // try to insert effects behind the player sprite if possible
-            if (parent && typeof parent.addChild === 'function') {
-              try {
-                const idx = typeof parent.getChildIndex === 'function' ? parent.getChildIndex(this.sprite) : -1;
-                if (idx >= 0) {
-                  // insert eff3, eff2, eff so eff3 is furthest back
-                  parent.addChildAt(eff3, Math.max(0, idx));
-                  parent.addChildAt(eff2, Math.max(0, idx + 1));
-                  parent.addChildAt(eff, Math.max(0, idx + 2));
-                } else {
-                  parent.addChild(eff3);
-                  parent.addChild(eff2);
-                  parent.addChild(eff);
-                }
-              } catch (e) { parent.addChild(eff3); parent.addChild(eff2); parent.addChild(eff); }
-            }
-
-            // remove effects after a short time
-            setTimeout(() => { try { eff.parent && eff.parent.removeChild(eff); } catch (e) {} }, 420);
-            setTimeout(() => { try { eff2.parent && eff2.parent.removeChild(eff2); } catch (e) {} }, 520);
-            setTimeout(() => { try { eff3.parent && eff3.parent.removeChild(eff3); } catch (e) {} }, 620);
-
             // Only perform the 360° spin when this is the 'double-jump' (i.e. last available mid-air jump)
-            if (prevJumpsLeft === 1) {
+              if (prevJumpsLeft === 1) {
               try {
+              try { spawnDoubleJumpEmitter(parent, () => ({ x: this.worldX - 20, y: this.y + 100 }), undefined, 1000); } catch (e) {}
               const spinDuration = 520; // ms
               const spriteAny: any = this.sprite;
               
@@ -365,6 +461,20 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
       } else {
         this.onGround = false;
       }
+
+      // If player is falling, cancel any active double-jump emitter so it doesn't trail
+      try {
+        if (this.vy > 0) {
+          try {
+            const parentAny: any = (this.sprite as any).parent;
+            if (parentAny) {
+              try { if (typeof parentAny.__doubleJumpEmitterStop === 'function') parentAny.__doubleJumpEmitterStop(); } catch (e) {}
+              try { parentAny.__doubleJumpEmitterActive = false; } catch (e) {}
+              try { delete parentAny.__doubleJumpEmitterStop; } catch (e) {}
+            }
+          } catch (e) {}
+        }
+      } catch (e) {}
 
       // sprite.x is in world coordinates; world.x = -scroll will offset it on-screen
       this.sprite.x = this.worldX;
