@@ -55,6 +55,103 @@ async function init() {
   const root = new Container();
   app.stage.addChild(root);
 
+  // HUD layer: not a child of `root` so it does NOT inherit `root.scale`.
+  // Place UI elements here so they remain pinned to screen corners.
+  const hudLayer = new Container();
+  app.stage.addChild(hudLayer);
+  // HUD game layer: child of `root` so it WILL inherit world scaling.
+  const hudGameLayer = new Container();
+  root.addChild(hudGameLayer);
+
+  // Keep HUD at constant on-screen size by inverse-scaling it against
+  // the canvas CSS scale (canvas.clientWidth / internal WIDTH).
+  function updateHudScale() {
+    try {
+      const cw = canvas.clientWidth || window.innerWidth || WIDTH;
+      const ch = canvas.clientHeight || window.innerHeight || HEIGHT;
+      const scaleX = cw && WIDTH ? (cw / WIDTH) : 1;
+      const scale = scaleX || 1;
+      const inv = scale > 0 ? (1 / scale) : 1;
+      hudLayer.scale.set(inv, inv);
+      hudLayer.position.set(0, 0);
+    } catch (e) {}
+  }
+
+  // HUD registry: keep a list of UI text/containers whose positions
+  // should be recomputed when the screen scale or device size changes.
+  const hudItems: Array<any> = [];
+
+  function layoutHud() {
+    try {
+      for (const it of hudItems) {
+        try {
+          const o = it.obj;
+          const an = it.anchor;
+          if (!o) continue;
+          // Support two types of HUD placement:
+          // - layer === 'screen' (default): positions specified in CSS pixels and
+          //   converted to internal coordinates so the HUD does NOT scale with the world.
+          // - layer === 'game': positions specified in internal units and placed in
+          //   the game container (scales with `root`).
+          const layerKind = it.layer || 'screen';
+          if (layerKind === 'screen') {
+            const sw = canvas.clientWidth || window.innerWidth;
+            const sh = canvas.clientHeight || window.innerHeight;
+            const scale = (sw && WIDTH) ? (sw / WIDTH) : 1;
+            const boundsW = (o.width !== undefined && typeof o.width === 'number') ? o.width : (o.getBounds ? o.getBounds().width : 0);
+            const boundsH = (o.height !== undefined && typeof o.height === 'number') ? o.height : (o.getBounds ? o.getBounds().height : 0);
+            if (an === 'topleft') {
+              o.x = (it.x !== undefined ? it.x : 0) * scale;
+              o.y = Math.max(0, (it.y !== undefined ? it.y : 0) * scale);
+            } else if (an === 'topright') {
+              const off = it.offsetX !== undefined ? it.offsetX : 0;
+              o.x = Math.max(0, ((sw - off) * scale) - boundsW);
+              o.y = Math.max(0, (it.y !== undefined ? it.y : 0) * scale);
+            } else if (an === 'bottomleft') {
+              const offY = it.offsetY !== undefined ? it.offsetY : 0;
+              o.x = (it.x !== undefined ? it.x : 0) * scale;
+              o.y = Math.max(0, ((sh - offY) * scale) - boundsH);
+            } else if (an === 'bottomright') {
+              const offX = it.offsetX !== undefined ? it.offsetX : 0;
+              const offY = it.offsetY !== undefined ? it.offsetY : 0;
+              o.x = Math.max(0, ((sw - offX) * scale) - boundsW);
+              o.y = Math.max(0, ((sh - offY) * scale) - boundsH);
+            } else if (an === 'center') {
+              o.x = ((sw / 2) + (it.x || 0)) * scale;
+              o.y = ((sh / 2) + (it.y || 0)) * scale;
+            }
+          } else {
+            // 'game' layer: positions are internal (game) units, so use WIDTH/HEIGHT
+            const swg = WIDTH;
+            const shg = HEIGHT;
+            const boundsWg = (o.width !== undefined && typeof o.width === 'number') ? o.width : (o.getBounds ? o.getBounds().width : 0);
+            const boundsHg = (o.height !== undefined && typeof o.height === 'number') ? o.height : (o.getBounds ? o.getBounds().height : 0);
+            if (an === 'topleft') {
+              o.x = it.x !== undefined ? it.x : 0;
+              o.y = Math.max(0, it.y !== undefined ? it.y : 0);
+            } else if (an === 'topright') {
+              const off = it.offsetX !== undefined ? it.offsetX : 0;
+              o.x = Math.max(0, swg - off - boundsWg);
+              o.y = Math.max(0, it.y !== undefined ? it.y : 0);
+            } else if (an === 'bottomleft') {
+              const offY = it.offsetY !== undefined ? it.offsetY : 0;
+              o.x = it.x !== undefined ? it.x : 0;
+              o.y = Math.max(0, shg - offY - boundsHg);
+            } else if (an === 'bottomright') {
+              const offX = it.offsetX !== undefined ? it.offsetX : 0;
+              const offY = it.offsetY !== undefined ? it.offsetY : 0;
+              o.x = Math.max(0, swg - offX - boundsWg);
+              o.y = Math.max(0, shg - offY - boundsHg);
+            } else if (an === 'center') {
+              o.x = (swg / 2) + (it.x || 0);
+              o.y = (shg / 2) + (it.y || 0);
+            }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+  }
+
   try {
     app.renderer.resize(WIDTH, HEIGHT);
   } catch (e) {}
@@ -64,6 +161,15 @@ async function init() {
     canvas.style.height = window.innerHeight + 'px';
   }
   applyCanvasCssSize();
+  try { updateHudScale(); } catch (e) {}
+
+  window.addEventListener('resize', () => {
+    try {
+      applyCanvasCssSize();
+      try { updateHudScale(); } catch (e) {}
+      try { layoutHud(); } catch (e) {}
+    } catch (e) {}
+  });
 
   const world = new Container();
   root.addChild(world);
@@ -166,36 +272,40 @@ async function init() {
   const label = new Text({ text: 'Running Chicken - Pixi v8', style: style });
   label.x = 140;
   label.y = 20;
-  root.addChild(label);
+  hudLayer.addChild(label);
+  // hide runtime speed/distance debug label (gameplay updates it)
+  label.visible = false;
 
-  try {
-    let soundEnabled = true; // Mặc định sound ON
-    const soundToggle = new Container();
-    const btnW = 120; const btnH = 36;
-    const btn = new Graphics();
-    try { btn.clear(); btn.beginFill(0x000000, 0.45); btn.drawRoundedRect(0, 0, btnW, btnH, 6); btn.endFill(); } catch (e) {}
-    const lblStyle = new TextStyle({ fill: '#ffffff', fontSize: 16, fontFamily: 'Helvetica-Bold' });
-    const lbl = new Text({ text: 'Sound: On', style: lblStyle }); // Hiển thị Sound: On mặc định
-    lbl.x = 10; lbl.y = 6;
-    soundToggle.addChild(btn);
-    soundToggle.addChild(lbl);
-    soundToggle.x = 8; soundToggle.y = 8;
-    soundToggle.interactive = true;
-    (soundToggle as any).buttonMode = true;
-    soundToggle.on && soundToggle.on('pointerdown', () => {
-      try {
-        if (soundEnabled) {
-          try { SoundController.stopBackground(); } catch (e) {}
-          soundEnabled = false; lbl.text = 'Sound: Off';
-        } else {
-          try { SoundController.playBackgroundForced(300); } catch (e) { try { SoundController.playBackground(); } catch (e) {} }
-          soundEnabled = true; lbl.text = 'Sound: On';
-          try { backgroundStarted = true; } catch (e) {}
-        }
-      } catch (e) {}
-    });
-    try { root.addChild(soundToggle); } catch (e) { app.stage.addChild(soundToggle); }
-  } catch (e) {}
+  // try {
+  //   let soundEnabled = true; // Mặc định sound ON
+  //   const soundToggle = new Container();
+  //   const btnW = 120; const btnH = 36;
+  //   const btn = new Graphics();
+  //   try { btn.clear(); btn.beginFill(0x000000, 0.45); btn.drawRoundedRect(0, 0, btnW, btnH, 6); btn.endFill(); } catch (e) {}
+  //   const lblStyle = new TextStyle({ fill: '#ffffff', fontSize: 16, fontFamily: 'Helvetica-Bold' });
+  //   const lbl = new Text({ text: 'Sound: On', style: lblStyle }); // Hiển thị Sound: On mặc định
+  //   lbl.x = 10; lbl.y = 6;
+  //   soundToggle.addChild(btn);
+  //   soundToggle.addChild(lbl);
+  //   soundToggle.x = 8; soundToggle.y = 8;
+  //   soundToggle.interactive = true;
+  //   (soundToggle as any).buttonMode = true;
+  //   soundToggle.on && soundToggle.on('pointerdown', () => {
+  //     try {
+  //       if (soundEnabled) {
+  //         try { SoundController.stopBackground(); } catch (e) {}
+  //         soundEnabled = false; lbl.text = 'Sound: Off';
+  //       } else {
+  //         try { SoundController.playBackgroundForced(300); } catch (e) { try { SoundController.playBackground(); } catch (e) {} }
+  //         soundEnabled = true; lbl.text = 'Sound: On';
+  //         try { backgroundStarted = true; } catch (e) {}
+  //       }
+  //     } catch (e) {}
+  //   });
+  //   try { hudLayer.addChild(soundToggle); } catch (e) { app.stage.addChild(soundToggle); }
+  //   // small sound toggle -> top-right, below other HUD items
+  //   hudItems.push({ obj: soundToggle, anchor: 'topright', offsetX: 20, y: 20 });
+  // } catch (e) {}
 
   const PLAYER_X = 150;
   const playerRadius = 40; // Giảm từ 20 xuống 15 để tránh va chạm sai
@@ -495,11 +605,11 @@ async function init() {
   let rewardPermanentStop = false;
   let rewardClaimed = false;
   // Removed invincible and blinking code
-  const scoreStyle = new TextStyle({ fill: '#ffffff', fontSize: 56, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' });
+  const scoreStyle = new TextStyle({ fill: '#000000ff', fontSize: 56, fontFamily: 'Helvetica-Bold', fontWeight: 'bold' });
   const scoreText = new Text({ text: 'Score: 0', style: scoreStyle });
-  scoreText.x = WIDTH - 320;
-  scoreText.y = 8;
-  root.addChild(scoreText);
+  // score: place inside the game container so it scales with world
+  hudGameLayer.addChild(scoreText);
+  hudItems.push({ obj: scoreText, anchor: 'topright', offsetX: 20, y: -50, layer: 'game' });
 
   let _lastHitSoundAt = 0;
   function tryPlayHitSound() {
@@ -787,7 +897,10 @@ async function init() {
   debug.x = 10;
   debug.y = 60;
   debug.visible = false;
-  root.addChild(debug);
+  hudLayer.addChild(debug);
+  // debug text also on top-right for testing
+  hudItems.push({ obj: debug, anchor: 'topright', offsetX: 20, y: 180 });
+  try { layoutHud(); } catch (e) {}
   
   // Player marker removed - no more red circle debug marker
   let debugEnabled = false;
@@ -1036,6 +1149,26 @@ async function init() {
               }
           } catch (e) {
           }
+        }
+      }
+    } catch (e) {}
+
+    // Handle invincibility blinking: toggle sprite alpha while playerInvincible
+    try {
+      if (playerInvincible) {
+        if (!_prevPlayerInvincible) {
+          _prevPlayerInvincible = true;
+          _invincibleBlinkStart = (performance && performance.now) ? performance.now() : Date.now();
+        }
+        const now = (performance && performance.now) ? performance.now() : Date.now();
+        const t = now - _invincibleBlinkStart;
+        const phase = Math.floor(t / INVINCIBLE_BLINK_PERIOD) % 2;
+        const a = phase ? INVINCIBLE_BLINK_ALPHA : 1;
+        try { if (player && player.sprite) player.sprite.alpha = a; } catch (e) {}
+      } else {
+        if (_prevPlayerInvincible) {
+          _prevPlayerInvincible = false;
+          try { if (player && player.sprite) player.sprite.alpha = 1; } catch (e) {}
         }
       }
     } catch (e) {}
@@ -1471,6 +1604,10 @@ async function init() {
   let controlsEnabled = false;
   let playerDead = false;
   let playerInvincible = false;
+  let _prevPlayerInvincible = false;
+  let _invincibleBlinkStart = 0;
+  const INVINCIBLE_BLINK_PERIOD = 180; // ms
+  const INVINCIBLE_BLINK_ALPHA = 0.25;
   let deathHandled = false;
 
   function playCollisionEffectAt(wx: number, wy: number, onComplete?: () => void) {
@@ -1660,6 +1797,7 @@ async function init() {
     root.y = (sh - HEIGHT * scale) / 2;
     // Intentionally do not call player.setScreenScale here so the player
     // scales together with `root.scale` (keep uniform scaling across scene).
+    try { layoutHud(); } catch (e) {}
   }
 
   updateScale();
@@ -1701,6 +1839,7 @@ async function init() {
             } catch (e) {}
           }
         } catch (e) {}
+        try { layoutHud(); } catch (e) {}
       } catch (e) {}
     });
   } catch (e) {}
