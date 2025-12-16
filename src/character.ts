@@ -104,7 +104,7 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     // hold-to-extend jump state
     // how long (seconds) additional jump hold extends the ascent
     // default allow 0.25s of extended ascent
-    maxJumpHoldTime: 0.25,
+    maxJumpHoldTime: 0.45,
     jumpHoldTime: 0,
     holdingJump: false,
     jump() {

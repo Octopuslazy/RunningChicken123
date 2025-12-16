@@ -274,7 +274,7 @@ export class MapHandler {
 
     // subtle background hue change to keep previous visual behaviour
     const hue = (this.scroll * 0.02) % 360;
-    const col = MapHandler.hslToHex(hue, 70, 55);
+    // const col = MapHandler.hslToHex(hue, 70, 55);
     // removed full-screen colored rectangle so host/app background is preserved
     // keep the bg Graphics cleared so no large overlay (the red block) is drawn
     this.bg.clear();
@@ -314,7 +314,7 @@ export class MapHandler {
     }
 
     // cleanup obstacles behind camera
-    while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 200)) {
+    while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 800)) {
       try { this.obstaclesContainer.removeChild(this.obstacles[0].sprite); } catch (e) {}
       this.obstacles.shift();
     }
@@ -323,15 +323,6 @@ export class MapHandler {
   }
 
   getObstacles() { return this.obstacles; }
-
-  static hslToHex(h: number, s: number, l: number) {
-    s /= 100; l /= 100;
-    const k = (n: number) => (n + h / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    const to255 = (v: number) => Math.round(f(v) * 255);
-    return (to255(0) << 16) + (to255(8) << 8) + to255(4);
-  }
 
   isOverPit(worldX: number) {
     for (const p of this.pits) {

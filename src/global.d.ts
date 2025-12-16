@@ -7,7 +7,7 @@ declare module '*.svg';
 
 // Khai báo cho file âm thanh (QUAN TRỌNG: Phải có cả viết hoa và viết thường)
 declare module '*.mp3';
-declare module '*.MP3';  // <-- Dòng này sửa lỗi của bạn
+declare module '*.MP3'; 
 declare module '*.wav';
 declare module '*.ogg';
 

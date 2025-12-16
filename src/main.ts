@@ -866,12 +866,15 @@ async function init() {
         const leftBoundary = -playerRadius - 500; // Cho phép player ra ngoài một chút trước khi game over
         
         if (playerScreenX < leftBoundary) {
-          console.log('Player went off screen left, game over!');
-          try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-          try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-          try { doGameOver && doGameOver('fell-behind', true); } catch (e) { 
-            try { doGameOver && doGameOver('fell-behind'); } catch (e) {} 
+          if (!deathHandled) {
+            deathHandled = true;
+            console.log('Player went off screen left, game over!');
+            try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+            try { doGameOver && doGameOver('fell-behind', true); } catch (e) { 
+              try { doGameOver && doGameOver('fell-behind'); } catch (e) {} 
+            }
           }
         }
       }
@@ -1094,13 +1097,16 @@ async function init() {
               // Exclude plane/platform decorations from causing death even if
               // their layer is 'Danger' — they should block but not kill when
               // the player is merely pushed into them.
-              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform) {
-                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                return;
+              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform && !playerInvincible) {
+                if (!deathHandled) {
+                  deathHandled = true;
+                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                  return;
+                }
               }
             } catch (e) {}
           } else if (currBottom > obstacleTop) {
@@ -1138,13 +1144,16 @@ async function init() {
               // Exclude planes/platforms from lethal death on side-contact push.
               // Require a minimum horizontal penetration so short pushes don't kill.
               const LETHAL_PENETRATION = 20; // pixels
-              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform && _penetrationForDeath > LETHAL_PENETRATION) {
-                try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-                try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
-                try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
-                playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
-                return;
+              if (!(o as any).isGround && (o as any).layer === 'Danger' && !(o as any).isPlane && !(o as any).isPlatform && _penetrationForDeath > LETHAL_PENETRATION && !playerInvincible) {
+                if (!deathHandled) {
+                  deathHandled = true;
+                  try { controlsEnabled = false; playerDead = true; player.vy = 0; } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+                  try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+                  try { if (!(o as any)._hitPlayed) { tryPlayHitSound(); try { (o as any)._hitPlayed = true; } catch (e) {} } } catch (e) {}
+                  playCollisionEffectAt(player.worldX, player.y, () => { try { doGameOver && doGameOver('hit-obstacle', true); } catch (e) { try { doGameOver && doGameOver('hit-obstacle'); } catch (e) {} } });
+                  return;
+                }
               }
             } catch (e) {}
           }
@@ -1186,8 +1195,13 @@ async function init() {
         
         try {
           if (playerDead) {
-            try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
-            try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+            // Only trigger the death animation once — `deathHandled` is set
+            // when the death sequence runs so the ticker should not replay
+            // the 'die' animation every frame.
+            if (!deathHandled) {
+              try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+              try { if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0); } catch (e) {}
+            }
           } else {
             const state = (spinePlayerInstance as any).spine ? (spinePlayerInstance as any).spine.state : null;
             const track0 = state ? (typeof state.getCurrent === 'function' ? state.getCurrent(0) : (state.tracks ? state.tracks[0] : null)) : null;
@@ -1445,6 +1459,9 @@ async function init() {
       // Do not counter-scale player on reset; keep scaling consistent with root
     } catch (e) {}
 
+    // Clear death handled/invincibility flags
+    try { playerInvincible = false; deathHandled = false; } catch (e) {}
+
     try { await startGame(); } catch (e) {}
     
     // Bật lại controls sau khi startGame hoàn thành
@@ -1453,6 +1470,8 @@ async function init() {
 
   let controlsEnabled = false;
   let playerDead = false;
+  let playerInvincible = false;
+  let deathHandled = false;
 
   function playCollisionEffectAt(wx: number, wy: number, onComplete?: () => void) {
     try {
@@ -1492,6 +1511,7 @@ async function init() {
   function doGameOver(finalReason?: string, force = false) {
     try { if (rewardActive || rewardPermanentStop) return; } catch (e) {}
     if (gameOver) return;
+    try { console.log('doGameOver called', finalReason, 'force=', force, 'playerInvincible=', playerInvincible, 'deathHandled=', deathHandled); } catch (e) {}
     try {
       if (!force) {
         const handler = (gameplay as any)._handler;
@@ -1509,8 +1529,66 @@ async function init() {
     try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
 
     try {
-      showGameOver({ app, root, canvas, onPlayAgain: () => { try { restartGame(); } catch (e) { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } } });
-    } catch (e) {}
+      try { console.log('calling showGameOver overlay'); } catch (e) {}
+      showGameOver({ app, root, canvas, onPlayAgain: () => { try { restartGame(); } catch (e) { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } }, onRespawn: () => {
+        try {
+          // Attempt a lightweight respawn at the current visible pattern.
+          try { gameOver = false; } catch (e) {}
+          try { playerDead = false; controlsEnabled = true; } catch (e) {}
+          try { playerInvincible = true; deathHandled = false; } catch (e) {}
+
+          // slow camera to 50% for 5s (user-requested)
+          try {
+            const handler = (gameplay as any)._handler;
+            const origSpeed = handler && (handler as any).speed ? (handler as any).speed : (gameplay && typeof gameplay.getSpeed === 'function' ? gameplay.getSpeed() : null);
+            if (handler && origSpeed !== null && origSpeed !== undefined) {
+              try { (handler as any).speed = origSpeed * 0.75; } catch (e) {}
+              setTimeout(() => { try { (handler as any).speed = origSpeed; } catch (e) {} }, 3000);
+            }
+          } catch (e) {}
+
+          // reposition player to a safe spot on the currently visible pattern
+          try {
+            const handler = (gameplay as any)._handler;
+            const scrollNow = (gameplay && typeof gameplay.getScroll === 'function') ? gameplay.getScroll() : (handler && (handler as any).scroll ? (handler as any).scroll : 0);
+            let targetWorldX = scrollNow + PLAYER_X;
+
+            // Try to pick a position inside the current or next visible pattern
+            try {
+              const patterns = handler && (handler as any).patterns ? (handler as any).patterns : null;
+              if (patterns && Array.isArray(patterns) && patterns.length) {
+                // find pattern that contains the screen X
+                let found = patterns.find((p: any) => targetWorldX >= p.start && targetWorldX <= (p.start + p.length));
+                if (!found) {
+                  // otherwise pick the first pattern whose span is ahead of the camera
+                  found = patterns.find((p: any) => (p.start + p.length) > scrollNow);
+                }
+                if (found) {
+                  // choose a safe offset inside the pattern (not too close to edges)
+                  const safeOffset = Math.min( Math.max(80, Math.floor(found.length / 6)), Math.max(80, Math.floor(found.length / 3)) );
+                  targetWorldX = Math.min(found.start + Math.max(40, safeOffset), found.start + Math.max(40, Math.floor(found.length * 0.5)));
+                }
+              }
+            } catch (e) {}
+
+            try { player.worldX = targetWorldX; } catch (e) {}
+            try { player.vy = 0; } catch (e) {}
+            try {
+              let surfaceY = groundY;
+              try { if (handler && typeof handler.getSurfaceYAt === 'function') surfaceY = handler.getSurfaceYAt(player.worldX); } catch (e) {}
+              player.y = surfaceY - playerRadius;
+            } catch (e) {}
+            try { if (player && player.sprite) { player.sprite.x = player.worldX; player.sprite.y = player.y; } } catch (e) {}
+            try { player.onGround = true; if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+          } catch (e) {}
+
+          // temporary invincibility for 3s
+          try { setTimeout(() => { try { playerInvincible = false; } catch (e) {} }, 3000); } catch (e) {}
+
+          try { if (spinePlayerInstance && spinePlayerInstance.play) { try { spinePlayerInstance.play('run', true, 0); } catch (e) {} } } catch (e) {}
+        } catch (e) {}
+      } });
+    } catch (e) { try { console.error('showGameOver threw', e); } catch (e2) {} }
   }
 
   function queueGameOver(reason: string) {

@@ -6,10 +6,11 @@ export type ShowGameOverParams = {
   root: Container;
   canvas: HTMLCanvasElement;
   onPlayAgain?: () => void;
+  onRespawn?: () => void;
 };
 
 export function showGameOver(params: ShowGameOverParams) {
-  const { app, root, canvas, onPlayAgain } = params;
+  const { app, root, canvas, onPlayAgain, onRespawn } = params;
   let overlayContainer: Container | null = null;
   let gt: Text | null = null;
   let btnBg: Graphics | null = null;
@@ -17,9 +18,11 @@ export function showGameOver(params: ShowGameOverParams) {
   let _btnPulseTicker: ((ticker?: any) => void) | null = null;
 
   try {
-    // Use the renderer/screen size so the overlay matches the game's internal resolution
-    const sw = (app.screen && (app.screen as any).width) ? (app.screen as any).width : (app.renderer && (app.renderer as any).width) || canvas.clientWidth || window.innerWidth;
-    const sh = (app.screen && (app.screen as any).height) ? (app.screen as any).height : (app.renderer && (app.renderer as any).height) || canvas.clientHeight || window.innerHeight;
+    // Use the canvas logical size (game logical resolution) so the overlay
+    // is positioned in the same coordinate space as `root` and will scale
+    // together with the game when `root.scale` changes.
+    const sw = (canvas && typeof canvas.width === 'number') ? canvas.width : ((app.renderer && (app.renderer as any).width) || canvas.clientWidth || window.innerWidth);
+    const sh = (canvas && typeof canvas.height === 'number') ? canvas.height : ((app.renderer && (app.renderer as any).height) || canvas.clientHeight || window.innerHeight);
 
     // Try to use a gameover image, otherwise fall back to a dark overlay
     let usedContainer: Container | null = null;
@@ -49,8 +52,8 @@ export function showGameOver(params: ShowGameOverParams) {
         container.addChild(bg);
         container.addChild(spr);
         container.zIndex = 100000;
-        try { app.stage.sortableChildren = true; } catch (e) {}
-        try { app.stage.addChild(container); } catch (e) { try { root.addChild(container); } catch (e) {} }
+        try { root.sortableChildren = true; } catch (e) {}
+        try { root.addChild(container); } catch (e) { try { app.stage.addChild(container); } catch (e) {} }
         usedContainer = container;
         try { SoundController.stopAllAndPlay('nan.mp3'); } catch (e) {}
       }
@@ -71,7 +74,8 @@ export function showGameOver(params: ShowGameOverParams) {
       try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
       g.zIndex = 100000;
       try { g.interactive = true; } catch (e) {}
-      try { app.stage.addChild(g); } catch (e) { try { root.addChild(g); } catch (e) {} }
+      // Prefer adding to `root` so overlay scales with the game
+      try { root.addChild(g); } catch (e) { try { app.stage.addChild(g); } catch (e) {} }
       usedContainer = new Container();
       usedContainer.addChild(g);
     }
@@ -87,8 +91,8 @@ export function showGameOver(params: ShowGameOverParams) {
     try { (gs as any).strokeThickness = 6; } catch (e) {}
     gt = new Text({ text: 'GAME OVER', style: gs });
     try { if (gt.anchor && (gt as any).anchor.set) (gt as any).anchor.set(0.5, 0.5); } catch (e) {}
-    gt.x = sw / 2;
-    gt.y = sh / 2 - 20;
+    gt.x = Math.round(sw / 2);
+    gt.y = Math.round(sh / 2) - 20;
     try { overlayContainer && overlayContainer.addChild(gt); } catch (e) { try { app.stage.addChild(gt); } catch (e) { try { root.addChild(gt); } catch (e) {} } }
 
     // Play Again button
@@ -116,15 +120,15 @@ export function showGameOver(params: ShowGameOverParams) {
         try { (btnBg as any).x = Math.round(sw / 2); (btnBg as any).y = Math.round(centerY); } catch (e) {}
       } catch (e) {}
       try { (btnBg as any).interactive = true; (btnBg as any).buttonMode = true; } catch (e) {}
-      try { overlayContainer && overlayContainer.addChild(btnBg); } catch (e) { try { app.stage.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) {} } }
+      try { overlayContainer && overlayContainer.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) { try { app.stage.addChild(btnBg); } catch (e) {} } }
 
       const bts = new TextStyle({ fill: '#222222', fontSize: 28, fontFamily: 'Helvetica-Bold' });
       btnText = new Text({ text: 'Play Again', style: bts });
-      btnText.x = sw / 2;
-      btnText.y = btnY + btnH / 2;
+      btnText.x = Math.round(sw / 2);
+      btnText.y = Math.round(btnY + btnH / 2);
       try { if (btnText.anchor && (btnText as any).anchor.set) (btnText as any).anchor.set(0.5, 0.5); } catch (e) {}
       btnText.zIndex = 100002;
-      try { overlayContainer && overlayContainer.addChild(btnText); } catch (e) { try { app.stage.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) {} } }
+      try { overlayContainer && overlayContainer.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) { try { app.stage.addChild(btnText); } catch (e) {} } }
 
       const cleanupAndReset = () => {
         try { if (_btnPulseTicker) { try { app.ticker.remove(_btnPulseTicker); } catch (e) {} _btnPulseTicker = null; } } catch (e) {}
@@ -146,7 +150,53 @@ export function showGameOver(params: ShowGameOverParams) {
         } catch (e) {}
       };
 
+      // Respawn button will be added below Play Again if onRespawn provided
       try { btnBg.on && btnBg.on('pointerdown', onDown); } catch (e) {}
+
+      // Add Respawn button (below Play Again)
+      try {
+        if (typeof onRespawn === 'function') {
+          const respW = 240; const respH = 52;
+          let respUsed = false;
+          const respX = Math.round(sw / 2 - respW / 2);
+          const respY = Math.round(btnY + btnH + 18);
+          const respBg = new Graphics();
+          try { if ((respBg as any).clear) (respBg as any).clear(); } catch (e) {}
+          try { if ((respBg as any).beginFill) (respBg as any).beginFill(0x88ccff, 1); } catch (e) {}
+          try { (respBg as any).drawRoundedRect ? (respBg as any).drawRoundedRect(respX, respY, respW, respH, 8) : (respBg as any).roundedRect && (respBg as any).roundedRect(respX, respY, respW, respH, 8); } catch (e) {}
+          try { (respBg as any).endFill && (respBg as any).endFill(); } catch (e) {}
+          respBg.zIndex = 100003;
+          try {
+            const centerX = respX + respW / 2;
+            const centerY = respY + respH / 2;
+            try { (respBg as any).pivot && (respBg as any).pivot.set ? (respBg as any).pivot.set(centerX, centerY) : ((respBg as any).pivot = { x: centerX, y: centerY }); } catch (e) {}
+            try { (respBg as any).x = Math.round(sw / 2); (respBg as any).y = Math.round(centerY); } catch (e) {}
+          } catch (e) {}
+          try { (respBg as any).interactive = true; (respBg as any).buttonMode = true; } catch (e) {}
+          try { overlayContainer && overlayContainer.addChild(respBg); } catch (e) { try { root.addChild(respBg); } catch (e) { try { app.stage.addChild(respBg); } catch (e) {} } }
+
+          const respStyle = new TextStyle({ fill: '#122233', fontSize: 20, fontFamily: 'Helvetica-Bold' });
+          const respText = new Text({ text: 'Respawn', style: respStyle });
+          respText.x = Math.round(sw / 2);
+          respText.y = Math.round(respY + respH / 2);
+          try { if (respText.anchor && (respText as any).anchor.set) (respText as any).anchor.set(0.5, 0.5); } catch (e) {}
+          respText.zIndex = 100004;
+          try { overlayContainer && overlayContainer.addChild(respText); } catch (e) { try { root.addChild(respText); } catch (e) { try { app.stage.addChild(respText); } catch (e) {} } }
+
+          const onRespDown = () => {
+            try {
+              if (respUsed) return;
+              respUsed = true;
+              try { respBg.interactive = false; } catch (e) {}
+              try { respBg.alpha = 0.6; } catch (e) {}
+              try { if (respText) respText.alpha = 0.6; } catch (e) {}
+            } catch (e) {}
+            try { cleanupAndReset(); } catch (e) {}
+            try { onRespawn && onRespawn(); } catch (e) {}
+          };
+          try { respBg.on && respBg.on('pointerdown', onRespDown); } catch (e) {}
+        }
+      } catch (e) {}
 
       // Start pulsing animation for the Play Again button (scale loop 0.8 -> 1.2)
       try {

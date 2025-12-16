@@ -10,7 +10,7 @@ export interface Danger6Options {
 
 // Danger6: three floating platforms (standable, non-lethal)
 export function makeDanger6(opts: Danger6Options = {}): PatternFactory {
-  const length = opts.length ?? 5100;
+  const length = opts.length ?? 1800;
   return function create(startX: number): PatternData {
     const container = new Container();
     try { container.sortableChildren = true; } catch (e) {}
