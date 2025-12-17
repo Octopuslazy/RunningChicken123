@@ -841,7 +841,7 @@ async function init() {
         const handler = (gameplay as any)._handler;
 
         const patterns: any[] = [];
-        const NUM_PATTERNS = 200;
+        const NUM_PATTERNS = 10; // Reduced from 200 for pooling system
         const PIT_WIDTH = 300;
 
         const PATTERN_LENGTH = 750;
@@ -896,6 +896,9 @@ async function init() {
 
           const p = handler.addPattern(factoryToUse, cursorX);
           patterns.push(p);
+          
+          // Store factory for dynamic generation
+          handler.storePatternFactory(factoryToUse);
 
           try {
             const SPAWN_CHANCE = 0.25;
@@ -1172,11 +1175,14 @@ async function init() {
       }
     } catch (e) {}
 
-    // Camera follow: keep player at 1/3 of screen X and sync handler scroll
+    // Camera follow: keep player at 1/3 of screen X and raise camera Y by 100px
     try {
       const TARGET_SCREEN_X = Math.round(WIDTH / 3);
       const desiredScroll = (player && typeof player.worldX === 'number') ? (player.worldX - TARGET_SCREEN_X) : scroll;
-      try { world.x = -desiredScroll; } catch (e) {}
+      try { 
+        world.x = -desiredScroll; 
+        world.y = -100; // Raise camera Y position by 100px
+      } catch (e) {}
       try {
         const handler = (gameplay as any)?._handler;
         if (handler) {

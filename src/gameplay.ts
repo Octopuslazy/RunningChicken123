@@ -76,7 +76,13 @@ export class MapHandler {
   }
 
   // simple list of active patterns (world coordinates)
-  private patterns: { start: number; length: number; top?: number; playerYOffset?: number }[] = [];
+  private patterns: { start: number; length: number; top?: number; playerYOffset?: number; container?: Container }[] = [];
+  
+  // Pattern pooling system
+  private patternPool: Container[] = [];
+  private maxActivePatterns = 15; // Keep only 15 patterns active at once
+  private lastPatternEndX = 0; // Track where the last pattern ends
+  private patternFactories: any[] = []; // Store factories for dynamic generation
 
   // addPattern allows registering a Pattern factory; for now we keep this
   // simple and spawn lightweight pattern containers when requested.
@@ -110,7 +116,10 @@ export class MapHandler {
       // create the continuous ground collider and we leave `top` undefined
       // so callers can fallback to per-obstacle platform lookups.
       const topForSurface = p.noGround ? undefined : (worldGroundTop - (this.groundThickness || 0));
-      this.patterns.push({ start: visualStart, length: visualLength, top: topForSurface, playerYOffset: p.playerYOffset ?? 0 });
+      this.patterns.push({ start: visualStart, length: visualLength, top: topForSurface, playerYOffset: p.playerYOffset ?? 0, container: p.container });
+      
+      // Update last pattern end position for dynamic generation
+      this.lastPatternEndX = Math.max(this.lastPatternEndX, visualStart + visualLength);
 
       // create a thin ground collider across the visual width of the pattern
       // so characters and physics can interact with the pattern surface. Skip
@@ -319,6 +328,12 @@ export class MapHandler {
       try { this.obstaclesContainer.removeChild(this.obstacles[0].sprite); } catch (e) {}
       this.obstacles.shift();
     }
+    
+    // Pattern pooling: cleanup old patterns and reuse containers
+    this.cleanupOldPatterns();
+    
+    // Dynamic generation: create new patterns when needed
+    this.generatePatternsIfNeeded();
 
     return { scroll: this.scroll, speed: this.speed };
   }
@@ -332,6 +347,65 @@ export class MapHandler {
     return false;
   }
 
+  // Pattern pooling: cleanup patterns behind camera
+  private cleanupOldPatterns() {
+    const cleanupDistance = this.scroll - 3000; // Keep patterns 3000px behind camera
+    
+    while (this.patterns.length && (this.patterns[0].start + this.patterns[0].length) < cleanupDistance) {
+      const oldPattern = this.patterns.shift();
+      if (oldPattern && oldPattern.container) {
+        try {
+          // Remove from world but keep container for reuse
+          this.world.removeChild(oldPattern.container);
+          // Clear container contents for reuse
+          oldPattern.container.removeChildren();
+          // Add to pool for reuse
+          this.patternPool.push(oldPattern.container);
+        } catch (e) {}
+      }
+    }
+    
+    // Limit pool size to prevent memory leak
+    if (this.patternPool.length > 20) {
+      this.patternPool.splice(0, this.patternPool.length - 20);
+    }
+  }
+  
+  // Dynamic generation: create new patterns when player approaches end
+  private generatePatternsIfNeeded() {
+    const playerPosition = this.scroll;
+    const distanceToEnd = this.lastPatternEndX - playerPosition;
+    
+    // Generate new patterns when player is within 5000px of the end
+    if (distanceToEnd < 5000 && this.patternFactories.length > 0) {
+      // Generate 5 new patterns
+      for (let i = 0; i < 5; i++) {
+        try {
+          // Pick a random factory from stored factories
+          const factoryIndex = Math.floor(Math.random() * this.patternFactories.length);
+          const factory = this.patternFactories[factoryIndex];
+          
+          if (factory) {
+            this.addPattern(factory, this.lastPatternEndX + 300); // 300px gap between patterns
+          }
+        } catch (e) {}
+      }
+    }
+  }
+  
+  // Store pattern factories for dynamic generation
+  storePatternFactory(factory: PatternFactory) {
+    this.patternFactories.push(factory);
+  }
+  
+  // Get or create reusable container from pool
+  private getPooledContainer(): Container {
+    if (this.patternPool.length > 0) {
+      return this.patternPool.pop()!;
+    }
+    return new Container();
+  }
+
   reset() {
     this.scroll = 0;
     this.speed = this.baseInitialSpeed;
@@ -340,6 +414,12 @@ export class MapHandler {
       for (const o of this.obstacles) { try { this.obstaclesContainer.removeChild(o.sprite); } catch (e) {} }
     } catch (e) {}
     this.obstacles.length = 0;
+    
+    // Reset pattern pooling system
+    this.patterns.length = 0;
+    this.patternPool.length = 0;
+    this.lastPatternEndX = 0;
+    this.patternFactories.length = 0;
   }
 }
 
