@@ -502,7 +502,12 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
     }
   };
 
-  (sprite as any).on('pointerdown', () => player.jump());
+  (sprite as any).on('pointerdown', () => {
+    // Check if controls are enabled globally (to be set by main game)
+    if ((window as any).__controlsEnabled !== false) {
+      player.jump();
+    }
+  });
 
   return player;
 }

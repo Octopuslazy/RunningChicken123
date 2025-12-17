@@ -1722,6 +1722,7 @@ async function init() {
     
     // Bật lại controls sau khi startGame hoàn thành
     controlsEnabled = true;
+    (window as any).__controlsEnabled = true;
   }
 
   let controlsEnabled = false;
@@ -1783,10 +1784,17 @@ async function init() {
       }
     } catch (e) {}
 
+    // IMMEDIATELY disable player controls and show death animation
+    controlsEnabled = false;
+    (window as any).__controlsEnabled = false; // Global flag for character input
     gameOver = true;
+    playerDead = true;
 
-
-    try { if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0); } catch (e) {}
+    // Play death animation immediately
+    try { 
+      if (spinePlayerInstance && spinePlayerInstance.pauseTrack) spinePlayerInstance.pauseTrack(0);
+      if (spinePlayerInstance && spinePlayerInstance.play) spinePlayerInstance.play('die', false, 0);
+    } catch (e) {}
 
     try {
       try { console.log('calling showGameOver overlay'); } catch (e) {}
@@ -1794,7 +1802,7 @@ async function init() {
         try {
           // Attempt a lightweight respawn at the current visible pattern.
           try { gameOver = false; } catch (e) {}
-          try { playerDead = false; controlsEnabled = true; } catch (e) {}
+          try { playerDead = false; controlsEnabled = true; (window as any).__controlsEnabled = true; } catch (e) {}
           try { playerInvincible = true; deathHandled = false; } catch (e) {}
 
           // slow camera to 50% for 5s (user-requested)
@@ -2031,7 +2039,7 @@ async function init() {
   } catch (e) {}
 
   try { await startGame(); } catch (e) {}
-  try { controlsEnabled = true; gameStartTime = Date.now(); } catch (e) {}
+  try { controlsEnabled = true; (window as any).__controlsEnabled = true; gameStartTime = Date.now(); } catch (e) {}
 
   function onResize() {
     applyCanvasCssSize();
