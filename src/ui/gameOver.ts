@@ -16,19 +16,35 @@ export function showGameOver(params: ShowGameOverParams) {
   let btnBg: Graphics | null = null;
   let btnText: Text | null = null;
   let _btnPulseTicker: ((ticker?: any) => void) | null = null;
+  
+  // Store original renderer state for restore
+  let originalWidth = 0;
+  let originalHeight = 0;
+  let originalCanvasWidth = 0;
+  let originalCanvasHeight = 0;
 
   try {
-    // Use full window size for overlay to ensure it covers entire screen
-    // regardless of game scaling or canvas size
-    const sw = window.innerWidth || 1920;
-    const sh = window.innerHeight || 1080;
+    // FORCE TRUE FULLSCREEN: Temporarily modify renderer to match window
+    const sw = window.innerWidth;
+    const sh = window.innerHeight;
     
-    // Calculate scale to ensure overlay covers full screen
-    const gameLogicalW = (app.renderer && (app.renderer as any).width) || 1920;
-    const gameLogicalH = (app.renderer && (app.renderer as any).height) || 1080;
-    const scaleX = sw / gameLogicalW;
-    const scaleY = sh / gameLogicalH;
-    const fullScreenScale = Math.max(scaleX, scaleY, 1.0); // Ensure minimum 1x scale
+    // Store original renderer state
+    originalWidth = app.renderer.width;
+    originalHeight = app.renderer.height;
+    originalCanvasWidth = app.canvas.width;
+    originalCanvasHeight = app.canvas.height;
+    
+    // Force renderer to match window size for fullscreen overlay
+    try {
+      app.renderer.resize(sw, sh);
+      app.canvas.style.width = `${sw}px`;
+      app.canvas.style.height = `${sh}px`;
+    } catch (e) {}
+    
+    // Use window dimensions directly
+    const gameLogicalW = sw;
+    const gameLogicalH = sh;
+    const fullScreenScale = 1.0;
 
     // Try to use a gameover image, otherwise fall back to a dark overlay
     let usedContainer: Container | null = null;
@@ -59,13 +75,13 @@ export function showGameOver(params: ShowGameOverParams) {
         container.addChild(spr);
         container.zIndex = 100000;
         
-        // Apply fullscreen scaling and positioning
-        container.scale.set(fullScreenScale, fullScreenScale);
-        container.x = (sw - gameLogicalW * fullScreenScale) / 2;
-        container.y = (sh - gameLogicalH * fullScreenScale) / 2;
+        // Apply fullscreen positioning - no scaling needed
+        container.scale.set(1, 1);
+        container.x = 0; // Start at screen edge
+        container.y = 0; // Start at screen edge
         
         try { app.stage.sortableChildren = true; } catch (e) {}
-        // Add directly to app.stage for fullscreen coverage, bypass root scaling
+        // Add directly to app.stage for true fullscreen coverage
         try { app.stage.addChild(container); } catch (e) { try { root.addChild(container); } catch (e) {} }
         usedContainer = container;
         try { SoundController.stopAllAndPlay('nan.mp3'); } catch (e) {}
@@ -91,13 +107,13 @@ export function showGameOver(params: ShowGameOverParams) {
       usedContainer = new Container();
       usedContainer.addChild(g);
       
-      // Apply fullscreen scaling and positioning for fallback overlay
-      usedContainer.scale.set(fullScreenScale, fullScreenScale);
-      usedContainer.x = (sw - gameLogicalW * fullScreenScale) / 2;
-      usedContainer.y = (sh - gameLogicalH * fullScreenScale) / 2;
+      // Apply fullscreen positioning - no scaling needed for fallback
+      usedContainer.scale.set(1, 1);
+      usedContainer.x = 0; // Start at screen edge
+      usedContainer.y = 0; // Start at screen edge
       usedContainer.zIndex = 100000;
       
-      // Add directly to app.stage for fullscreen coverage
+      // Add directly to app.stage for true fullscreen coverage
       try { app.stage.addChild(usedContainer); } catch (e) { try { root.addChild(usedContainer); } catch (e) {} }
     }
 
@@ -240,6 +256,14 @@ export function showGameOver(params: ShowGameOverParams) {
 
   return {
     cleanup: () => {
+      // Restore original renderer state
+      try {
+        app.renderer.resize(originalWidth, originalHeight);
+        app.canvas.style.width = `${originalCanvasWidth}px`;
+        app.canvas.style.height = `${originalCanvasHeight}px`;
+      } catch (e) {}
+      
+      // Remove overlay elements
       try { if (overlayContainer && overlayContainer.parent) overlayContainer.parent.removeChild(overlayContainer); } catch (e) {}
       try { if (gt && gt.parent) gt.parent.removeChild(gt); } catch (e) {}
       try { if (btnBg && btnBg.parent) btnBg.parent.removeChild(btnBg); } catch (e) {}
