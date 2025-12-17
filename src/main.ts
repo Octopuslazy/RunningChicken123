@@ -1749,6 +1749,28 @@ async function init() {
   }
 
   app.ticker.add(() => {
+    // Always perform an offscreen-Y check (even if controlsDisabled)
+    try {
+      if (!gameOver && player && player.sprite) {
+        const gpNow = (player.sprite && typeof (player.sprite as any).getGlobalPosition === 'function') ? (player.sprite as any).getGlobalPosition() : { x: (player.worldX || 0) + (world.x || 0), y: (player.y || 0) + (world.y || 0) };
+        const canvasHNow = (canvas && canvas.clientHeight) ? canvas.clientHeight : window.innerHeight;
+        
+        if ((gpNow.y || 0) > (canvasHNow + 100)) {
+          try { doGameOver && doGameOver('fell_offscreen', true); } catch (e) { try { queueGameOver('fell_offscreen'); } catch (e2) {} }
+        }
+        // also force by vertical gap relative to surface
+        try {
+          const handlerNow = (gameplay as any)?._handler;
+          let surfaceYNow = groundY;
+          try { if (handlerNow && typeof handlerNow.getSurfaceYAt === 'function') surfaceYNow = handlerNow.getSurfaceYAt(player.worldX); } catch (e) {}
+          const vGapNow = (player && typeof player.y === 'number' ? player.y : 0) - (surfaceYNow || 0);
+         
+          if (vGapNow > 100) {
+            try { doGameOver && doGameOver('fell_too_far', true); } catch (e) { try { queueGameOver('fell_too_far'); } catch (e2) {} }
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     if (gameOver || !controlsEnabled) return; // Thêm check controlsEnabled để tránh trigger khi restart
     try {
       try {
@@ -1764,21 +1786,47 @@ async function init() {
         }
       } catch (e) {}
 
-      const screenX = player.sprite.x + world.x;
-      const behindThreshold = -playerRadius - 10;
-      const screenY = (player.sprite.y || 0) + (world.y || 0);
+      // Use global position to account for `root` transforms (scale/translate)
+      const gp = (player.sprite && typeof (player.sprite as any).getGlobalPosition === 'function') ? (player.sprite as any).getGlobalPosition() : { x: (player.worldX || 0) + (world.x || 0), y: (player.y || 0) + (world.y || 0) };
+      const screenY = gp.y || 0;
 
-      if (screenX < behindThreshold) {
-        queueGameOver('behind-camera');
-        } else if (screenY > HEIGHT + 500) {
-           
+      // Removed left/behind-camera death: player may be pushed back without dying.
+      // Only trigger fall-offscreen by Y coordinate (use canvas client height).
+      const canvasH = (canvas && canvas.clientHeight) ? canvas.clientHeight : window.innerHeight;
+      // Also consider world-relative fall distance from the current surface.
+      try {
+        const handler = (gameplay as any)?._handler;
+        let surfaceY = groundY;
+        try {
+          if (handler) {
+            // Prefer the Y of the first spawned pattern when available
+            try {
+              if (Array.isArray((handler as any).patterns) && (handler as any).patterns.length > 0) {
+                const p0 = (handler as any).patterns[0];
+                if (p0 && p0.top !== undefined && p0.top !== null) {
+                  surfaceY = p0.top;
+                } else if (p0 && p0.playerYOffset !== undefined && (handler as any).groundY !== undefined) {
+                  surfaceY = (handler as any).groundY + (p0.playerYOffset || 0);
+                } else if (typeof handler.getSurfaceYAt === 'function') {
+                  surfaceY = handler.getSurfaceYAt(player.worldX);
+                }
+              } else if (typeof handler.getSurfaceYAt === 'function') {
+                surfaceY = handler.getSurfaceYAt(player.worldX);
+              }
+            } catch (e) {
+              try { if (typeof handler.getSurfaceYAt === 'function') surfaceY = handler.getSurfaceYAt(player.worldX); } catch (e2) {}
+            }
+          }
+        } catch (e) {}
+        const verticalGap = (player && typeof player.y === 'number' ? player.y : 0) - (surfaceY || 0);
+        if (verticalGap > 300) {
+          queueGameOver('fell_too_far');
+        } else if (screenY > (canvasH + 500)) {
           queueGameOver('fell_offscreen');
-      } else {
-        if (gameOverQueuedTimer && gameOverQueuedReason === 'behind-camera') {
-          try { gameOverQueuedReason; } catch (e) {}
-          clearTimeout(gameOverQueuedTimer as any);
-          gameOverQueuedTimer = null;
-          gameOverQueuedReason = null;
+        }
+      } catch (e) {
+        if (screenY > (canvasH + 500)) {
+          queueGameOver('fell_offscreen');
         }
       }
     } catch (e) {}
