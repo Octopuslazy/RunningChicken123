@@ -1725,17 +1725,21 @@ async function init() {
 
     // Reset player state TRƯỚC KHI startGame
     try {
-      try { (world as any).x = 0; } catch (e) {}
-      try { 
-        player.worldX = PLAYER_X; 
-        player.vy = 0; 
-        player.y = groundY - playerRadius; // Đặt player ở vị trí an toàn trên mặt đất
-        player.sprite.y = player.y; 
-        prevScore = 0; 
-        score = 0; 
-        scoreText.text = `Score: ${score}`;
-      } catch (e) {}
-      // Do not counter-scale player on reset; keep scaling consistent with root
+      // Reset player to initial position first
+      player.worldX = PLAYER_X; 
+      player.vy = 0; 
+      player.y = groundY - playerRadius; // Đặt player ở vị trí an toàn trên mặt đất
+      player.sprite.x = PLAYER_X;
+      player.sprite.y = player.y; 
+      prevScore = 0; 
+      score = 0; 
+      scoreText.text = `Score: ${score}`;
+      
+      // Set camera position to match initial player position
+      const TARGET_SCREEN_X = Math.round(WIDTH / 3);
+      const desiredScroll = PLAYER_X - TARGET_SCREEN_X;
+      world.x = -desiredScroll;
+      world.y = -100; // Maintain camera Y offset
     } catch (e) {}
 
     // Clear death handled/invincibility flags
@@ -1871,6 +1875,18 @@ async function init() {
             } catch (e) {}
             try { if (player && player.sprite) { player.sprite.x = player.worldX; player.sprite.y = player.y; } } catch (e) {}
             try { player.onGround = true; if ((player as any).maxJumps !== undefined) (player as any).jumpsLeft = (player as any).maxJumps; } catch (e) {}
+            
+            // Update camera position to match new player position
+            try {
+              const TARGET_SCREEN_X = Math.round(WIDTH / 3);
+              const desiredScroll = targetWorldX - TARGET_SCREEN_X;
+              world.x = -desiredScroll;
+              world.y = -100; // Maintain camera Y offset
+              if (handler) {
+                try { handler.scroll = desiredScroll; } catch (e) {}
+                try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+              }
+            } catch (e) {}
           } catch (e) {}
 
           // temporary invincibility for 3s
