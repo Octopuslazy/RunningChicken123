@@ -1048,7 +1048,7 @@ async function init() {
         const d = ev && ev.detail ? ev.detail : {};
         const x = typeof d.x === 'number' ? d.x : (d && d.pos && d.pos.x) || 0;
         const y = typeof d.y === 'number' ? d.y : (d && d.pos && d.pos.y) || 0;
-        try { playCollisionEffectAt(x, y); } catch (e) {}
+        // Removed collision effect for pickup - only play pickup sound
         try { SoundController.playPickup(); } catch (e) {}
         try {
           // Chỉ cộng điểm khi game chưa over
@@ -1891,6 +1891,14 @@ async function init() {
 
           // temporary invincibility for 3s
           try { setTimeout(() => { try { playerInvincible = false; } catch (e) {} }, 3000); } catch (e) {}
+
+          // Restart background music if needed
+          try {
+            SoundController.playBackgroundForced(300);
+            backgroundStarted = true;
+          } catch (e) {
+            try { SoundController.playBackground(); } catch (e) {}
+          }
 
           try { if (spinePlayerInstance && spinePlayerInstance.play) { try { spinePlayerInstance.play('run', true, 0); } catch (e) {} } } catch (e) {}
         } catch (e) {}
