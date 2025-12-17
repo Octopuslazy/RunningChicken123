@@ -170,15 +170,14 @@ async function init() {
     try {
       const winW = window.innerWidth || WIDTH;
       const winH = window.innerHeight || HEIGHT;
-      // Prefer fit-to-width so the game fills horizontally on phones.
-      let scale = (winW / WIDTH) || 1;
-      // Compute CSS size for that scale
+      // Prefer fit-to-height so the game fills vertically on phones.
+      let scale = (winH / HEIGHT) || 1;
       let cssW = Math.max(1, Math.round(WIDTH * scale));
       let cssH = Math.max(1, Math.round(HEIGHT * scale));
 
-      // If fitted width produces a canvas taller than the window, fall back to fitting height.
-      if (cssH > winH) {
-        scale = (winH / HEIGHT) || 1;
+      // If fitted height produces a canvas wider than the window, fall back to fitting width.
+      if (cssW > winW) {
+        scale = (winW / WIDTH) || 1;
         cssW = Math.max(1, Math.round(WIDTH * scale));
         cssH = Math.max(1, Math.round(HEIGHT * scale));
       }
@@ -186,10 +185,10 @@ async function init() {
       canvas.style.width = cssW + 'px';
       canvas.style.height = cssH + 'px';
       canvas.style.position = 'absolute';
-      // Align horizontally to left (fills width when fitting width) and center vertically
-      canvas.style.left = Math.max(0, Math.round((winW - cssW) / 2)) + 'px';
-      const topPx = Math.round((winH - cssH) / 2);
-      canvas.style.top = (topPx > 0 ? topPx : 0) + 'px';
+      // Center horizontally and align vertically to top (so UI stays visible)
+      const leftPx = Math.round((winW - cssW) / 2);
+      canvas.style.left = (leftPx > 0 ? leftPx : 0) + 'px';
+      canvas.style.top = '0px';
       canvas.style.transform = '';
     } catch (e) {}
   }
