@@ -335,7 +335,8 @@ async function init() {
         const s = new Sprite(bigTex as any);
         s.x = i * extendedTileW;
         s.y = 40;
-        s.anchor.set(0, 0);
+        // Set anchor to center-top (horizontal center, vertical top)
+        s.anchor.set(0.5, 0);
         c.addChild(s);
       }
       function updateBig(scroll: number) {
@@ -360,7 +361,8 @@ async function init() {
         const s = new Sprite(smallTex as any);
         s.x = i * extendedTileWS;
         s.y = 100;
-        s.anchor.set(0, 0);
+        // Set anchor to center-top (horizontal center, vertical top)
+        s.anchor.set(0.5, 0);
         c.addChild(s);
       }
       function updateSmall(scroll: number) {
@@ -1622,7 +1624,7 @@ async function init() {
   async function restartGame() {
     try { SoundController.stopAll(); } catch (e) {}
     
-    // RESET STATE NGAY LẬP TỨC để tránh trigger game over
+    
     gameOver = false;
     playerDead = false;
     controlsEnabled = false; // Tạm tắt controls trong khi restart
