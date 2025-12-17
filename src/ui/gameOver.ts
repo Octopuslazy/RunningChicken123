@@ -18,11 +18,17 @@ export function showGameOver(params: ShowGameOverParams) {
   let _btnPulseTicker: ((ticker?: any) => void) | null = null;
 
   try {
-    // Use the canvas logical size (game logical resolution) so the overlay
-    // is positioned in the same coordinate space as `root` and will scale
-    // together with the game when `root.scale` changes.
-    const sw = (canvas && typeof canvas.width === 'number') ? canvas.width : ((app.renderer && (app.renderer as any).width) || canvas.clientWidth || window.innerWidth);
-    const sh = (canvas && typeof canvas.height === 'number') ? canvas.height : ((app.renderer && (app.renderer as any).height) || canvas.clientHeight || window.innerHeight);
+    // Use full window size for overlay to ensure it covers entire screen
+    // regardless of game scaling or canvas size
+    const sw = window.innerWidth || 1920;
+    const sh = window.innerHeight || 1080;
+    
+    // Calculate scale to ensure overlay covers full screen
+    const gameLogicalW = (app.renderer && (app.renderer as any).width) || 1920;
+    const gameLogicalH = (app.renderer && (app.renderer as any).height) || 1080;
+    const scaleX = sw / gameLogicalW;
+    const scaleY = sh / gameLogicalH;
+    const fullScreenScale = Math.max(scaleX, scaleY, 1.0); // Ensure minimum 1x scale
 
     // Try to use a gameover image, otherwise fall back to a dark overlay
     let usedContainer: Container | null = null;
@@ -46,14 +52,21 @@ export function showGameOver(params: ShowGameOverParams) {
         const spr = new Sprite(goTex as any);
         try { if (spr.anchor && spr.anchor.set) spr.anchor.set(0.5, 0.5); } catch (e) {}
         try { if (spr.scale) spr.scale.set(2, 2); } catch (e) {}
-        spr.x = Math.round(sw / 2);
-        spr.y = Math.round(sh / 2) + 200;
+        spr.x = Math.round(gameLogicalW / 2);
+        spr.y = Math.round(gameLogicalH / 2) + 200;
 
         container.addChild(bg);
         container.addChild(spr);
         container.zIndex = 100000;
-        try { root.sortableChildren = true; } catch (e) {}
-        try { root.addChild(container); } catch (e) { try { app.stage.addChild(container); } catch (e) {} }
+        
+        // Apply fullscreen scaling and positioning
+        container.scale.set(fullScreenScale, fullScreenScale);
+        container.x = (sw - gameLogicalW * fullScreenScale) / 2;
+        container.y = (sh - gameLogicalH * fullScreenScale) / 2;
+        
+        try { app.stage.sortableChildren = true; } catch (e) {}
+        // Add directly to app.stage for fullscreen coverage, bypass root scaling
+        try { app.stage.addChild(container); } catch (e) { try { root.addChild(container); } catch (e) {} }
         usedContainer = container;
         try { SoundController.stopAllAndPlay('nan.mp3'); } catch (e) {}
       }
@@ -70,14 +83,22 @@ export function showGameOver(params: ShowGameOverParams) {
           (g as any).beginFill && (g as any).beginFill(0x000000, 0.65);
         }
       } catch (e) {}
-      try { (g as any).rect ? (g as any).rect(0, 0, sw, sh) : (g as any).drawRect && (g as any).drawRect(0, 0, sw, sh); } catch (e) {}
+      try { (g as any).rect ? (g as any).rect(0, 0, gameLogicalW, gameLogicalH) : (g as any).drawRect && (g as any).drawRect(0, 0, gameLogicalW, gameLogicalH); } catch (e) {}
       try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
       g.zIndex = 100000;
       try { g.interactive = true; } catch (e) {}
-      // Prefer adding to `root` so overlay scales with the game
-      try { root.addChild(g); } catch (e) { try { app.stage.addChild(g); } catch (e) {} }
+      
       usedContainer = new Container();
       usedContainer.addChild(g);
+      
+      // Apply fullscreen scaling and positioning for fallback overlay
+      usedContainer.scale.set(fullScreenScale, fullScreenScale);
+      usedContainer.x = (sw - gameLogicalW * fullScreenScale) / 2;
+      usedContainer.y = (sh - gameLogicalH * fullScreenScale) / 2;
+      usedContainer.zIndex = 100000;
+      
+      // Add directly to app.stage for fullscreen coverage
+      try { app.stage.addChild(usedContainer); } catch (e) { try { root.addChild(usedContainer); } catch (e) {} }
     }
 
     overlayContainer = usedContainer;
@@ -91,15 +112,15 @@ export function showGameOver(params: ShowGameOverParams) {
     try { (gs as any).strokeThickness = 6; } catch (e) {}
     gt = new Text({ text: 'GAME OVER', style: gs });
     try { if (gt.anchor && (gt as any).anchor.set) (gt as any).anchor.set(0.5, 0.5); } catch (e) {}
-    gt.x = Math.round(sw / 2);
-    gt.y = Math.round(sh / 2) - 20;
+    gt.x = Math.round(gameLogicalW / 2);
+    gt.y = Math.round(gameLogicalH / 2) - 20;
     try { overlayContainer && overlayContainer.addChild(gt); } catch (e) { try { app.stage.addChild(gt); } catch (e) { try { root.addChild(gt); } catch (e) {} } }
 
     // Play Again button
     try {
       const btnW = 320; const btnH = 64;
-      const btnX = Math.round(sw / 2 - btnW / 2);
-      const btnY = Math.round(sh / 2 + 60);
+      const btnX = Math.round(gameLogicalW / 2 - btnW / 2);
+      const btnY = Math.round(gameLogicalH / 2 + 60);
       btnBg = new Graphics();
       try {
         if (typeof (btnBg as any).fill === 'function') {
@@ -117,14 +138,14 @@ export function showGameOver(params: ShowGameOverParams) {
         const centerX = btnX + btnW / 2;
         const centerY = btnY + btnH / 2;
         try { (btnBg as any).pivot && (btnBg as any).pivot.set ? (btnBg as any).pivot.set(centerX, centerY) : ((btnBg as any).pivot = { x: centerX, y: centerY }); } catch (e) {}
-        try { (btnBg as any).x = Math.round(sw / 2); (btnBg as any).y = Math.round(centerY); } catch (e) {}
+        try { (btnBg as any).x = Math.round(gameLogicalW / 2); (btnBg as any).y = Math.round(centerY); } catch (e) {}
       } catch (e) {}
       try { (btnBg as any).interactive = true; (btnBg as any).buttonMode = true; } catch (e) {}
       try { overlayContainer && overlayContainer.addChild(btnBg); } catch (e) { try { root.addChild(btnBg); } catch (e) { try { app.stage.addChild(btnBg); } catch (e) {} } }
 
       const bts = new TextStyle({ fill: '#222222', fontSize: 28, fontFamily: 'Helvetica-Bold' });
       btnText = new Text({ text: 'Play Again', style: bts });
-      btnText.x = Math.round(sw / 2);
+      btnText.x = Math.round(gameLogicalW / 2);
       btnText.y = Math.round(btnY + btnH / 2);
       try { if (btnText.anchor && (btnText as any).anchor.set) (btnText as any).anchor.set(0.5, 0.5); } catch (e) {}
       btnText.zIndex = 100002;
@@ -158,7 +179,7 @@ export function showGameOver(params: ShowGameOverParams) {
         if (typeof onRespawn === 'function') {
           const respW = 240; const respH = 52;
           let respUsed = false;
-          const respX = Math.round(sw / 2 - respW / 2);
+          const respX = Math.round(gameLogicalW / 2 - respW / 2);
           const respY = Math.round(btnY + btnH + 18);
           const respBg = new Graphics();
           try { if ((respBg as any).clear) (respBg as any).clear(); } catch (e) {}
@@ -170,14 +191,14 @@ export function showGameOver(params: ShowGameOverParams) {
             const centerX = respX + respW / 2;
             const centerY = respY + respH / 2;
             try { (respBg as any).pivot && (respBg as any).pivot.set ? (respBg as any).pivot.set(centerX, centerY) : ((respBg as any).pivot = { x: centerX, y: centerY }); } catch (e) {}
-            try { (respBg as any).x = Math.round(sw / 2); (respBg as any).y = Math.round(centerY); } catch (e) {}
+            try { (respBg as any).x = Math.round(gameLogicalW / 2); (respBg as any).y = Math.round(centerY); } catch (e) {}
           } catch (e) {}
           try { (respBg as any).interactive = true; (respBg as any).buttonMode = true; } catch (e) {}
           try { overlayContainer && overlayContainer.addChild(respBg); } catch (e) { try { root.addChild(respBg); } catch (e) { try { app.stage.addChild(respBg); } catch (e) {} } }
 
           const respStyle = new TextStyle({ fill: '#122233', fontSize: 20, fontFamily: 'Helvetica-Bold' });
           const respText = new Text({ text: 'Respawn', style: respStyle });
-          respText.x = Math.round(sw / 2);
+          respText.x = Math.round(gameLogicalW / 2);
           respText.y = Math.round(respY + respH / 2);
           try { if (respText.anchor && (respText as any).anchor.set) (respText as any).anchor.set(0.5, 0.5); } catch (e) {}
           respText.zIndex = 100004;

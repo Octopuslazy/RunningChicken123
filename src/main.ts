@@ -1084,11 +1084,27 @@ async function init() {
       }
     } catch (e) {
       // Silent fail to avoid spam
-    }    const { scroll, speed } = gameplay.update(deltaSec);
+    }    
+    
+    // Stop gameplay and player movement when game over
+    let scroll = 0, speed = 0, playerMoveSpeed = 0;
+    if (!gameOver && controlsEnabled) {
+      const result = gameplay.update(deltaSec);
+      scroll = result.scroll;
+      speed = result.speed;
+      playerMoveSpeed = speed * PLAYER_SPEED_FACTOR;
 
-    const playerMoveSpeed = speed * PLAYER_SPEED_FACTOR;
-    if (!playerDead) {
-      player.worldX += playerMoveSpeed * deltaSec;
+      if (!playerDead) {
+        player.worldX += playerMoveSpeed * deltaSec;
+      }
+    } else {
+      // When game over, use last known scroll/speed values
+      const handler = (gameplay as any)?._handler;
+      if (handler) {
+        scroll = handler.scroll || 0;
+        speed = handler.speed || 0;
+        playerMoveSpeed = speed * PLAYER_SPEED_FACTOR;
+      }
     }
 
     // Left-boundary death removed: player will not die when pushed left.
@@ -1124,6 +1140,10 @@ async function init() {
               try {
                 if (child && (child as any).__isPatternPlane) {
                   const ps: any = child;
+                  // Stop all pattern animations when game over
+                  if (gameOver || !controlsEnabled) {
+                    continue; // Skip animation when game is over
+                  }
                   // Respect explicit zero velocities: only fall back to default
                   // when __vx is undefined/null. Using `||` treats 0 as falsy
                   // which caused stationary platforms to still move.
@@ -1507,11 +1527,14 @@ async function init() {
     // Do not counter-scale the player here; let `root.scale` scale all actors
     // together so character, patterns and background keep the same ratio.
 
-    try { if (cloudBigLayer && cloudBigLayer.update) cloudBigLayer.update(scroll); } catch (e) {}
-    try { if (cloudSmallLayer && cloudSmallLayer.update) cloudSmallLayer.update(scroll); } catch (e) {}
-    try {
-      if (cityLayer && cityLayer.update) cityLayer.update(scroll);
-    } catch (e) {}
+    // Stop background parallax animations when game over
+    if (!gameOver && controlsEnabled) {
+      try { if (cloudBigLayer && cloudBigLayer.update) cloudBigLayer.update(scroll); } catch (e) {}
+      try { if (cloudSmallLayer && cloudSmallLayer.update) cloudSmallLayer.update(scroll); } catch (e) {}
+      try {
+        if (cityLayer && cityLayer.update) cityLayer.update(scroll);
+      } catch (e) {}
+    }
 
     label.text = `Speed(cam): ${Math.round(speed)} px/s  Distance: ${Math.floor(scroll)}`;
 
