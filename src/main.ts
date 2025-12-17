@@ -34,7 +34,10 @@ async function init() {
     width: WIDTH,
     height: HEIGHT,
     background: 0x1099bb,
-    resizeTo: window
+    // Note: removed `resizeTo: window` to keep the internal render
+    // resolution fixed at WIDTH x HEIGHT. CSS scaling is applied
+    // separately via `applyCanvasCssSize()` so the game logic
+    // coordinates remain consistent across devices.
   });
 
   // --- SỬA LỖI TẠI ĐÂY ---
@@ -48,8 +51,15 @@ async function init() {
   const canvas = app.canvas as HTMLCanvasElement;
   canvas.style.display = 'block';
   document.body.style.margin = '0';
-  canvas.width = WIDTH;
-  canvas.height = HEIGHT;
+  // Enforce internal render resolution fixed to WIDTH x HEIGHT.
+  try {
+    // Use a fixed renderer resolution (1) so game logic coordinates map to WIDTH/HEIGHT.
+    app.renderer.resolution = 1;
+    app.renderer.resize(WIDTH, HEIGHT);
+    // Ensure canvas backing-store size matches internal resolution.
+    canvas.width = Math.round(WIDTH * app.renderer.resolution);
+    canvas.height = Math.round(HEIGHT * app.renderer.resolution);
+  } catch (e) {}
   document.body.appendChild(canvas);
 
   const root = new Container();
@@ -157,8 +167,31 @@ async function init() {
   } catch (e) {}
 
   function applyCanvasCssSize() {
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
+    try {
+      const winW = window.innerWidth || WIDTH;
+      const winH = window.innerHeight || HEIGHT;
+      // Prefer fit-to-width so the game fills horizontally on phones.
+      let scale = (winW / WIDTH) || 1;
+      // Compute CSS size for that scale
+      let cssW = Math.max(1, Math.round(WIDTH * scale));
+      let cssH = Math.max(1, Math.round(HEIGHT * scale));
+
+      // If fitted width produces a canvas taller than the window, fall back to fitting height.
+      if (cssH > winH) {
+        scale = (winH / HEIGHT) || 1;
+        cssW = Math.max(1, Math.round(WIDTH * scale));
+        cssH = Math.max(1, Math.round(HEIGHT * scale));
+      }
+
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.style.position = 'absolute';
+      // Align horizontally to left (fills width when fitting width) and center vertically
+      canvas.style.left = Math.max(0, Math.round((winW - cssW) / 2)) + 'px';
+      const topPx = Math.round((winH - cssH) / 2);
+      canvas.style.top = (topPx > 0 ? topPx : 0) + 'px';
+      canvas.style.transform = '';
+    } catch (e) {}
   }
   applyCanvasCssSize();
   try { updateHudScale(); } catch (e) {}

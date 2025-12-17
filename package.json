@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "dev": "webpack serve --mode development",
+    "build": "webpack --mode production", 
+    "watch": "webpack --watch"
+
   },
   "dependencies": {
     "@esotericsoftware/spine-pixi-v8": "^4.2.95",
