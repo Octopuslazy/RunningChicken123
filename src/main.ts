@@ -333,8 +333,10 @@ async function init() {
       const needed = Math.ceil((WIDTH * 2) / extendedTileW) + 4;
       for (let i = 0; i < needed; i++) {
         const s = new Sprite(bigTex as any);
-        s.x = i * extendedTileW;
-        s.y = 40;
+        // Adjust X position when anchor is center (0.5) - add half tile width offset
+        s.x = i * extendedTileW + (tileW / 2);
+        // Position higher up for mobile landscape visibility
+        s.y = 20;
         // Set anchor to center-top (horizontal center, vertical top)
         s.anchor.set(0.5, 0);
         c.addChild(s);
@@ -359,8 +361,10 @@ async function init() {
       const needed = Math.ceil((WIDTH * 2) / extendedTileWS) + 4;
       for (let i = 0; i < needed; i++) {
         const s = new Sprite(smallTex as any);
-        s.x = i * extendedTileWS;
-        s.y = 100;
+        // Adjust X position when anchor is center (0.5) - add half tile width offset  
+        s.x = i * extendedTileWS + (tileW / 2);
+        // Position higher up for mobile landscape visibility
+        s.y = 60;
         // Set anchor to center-top (horizontal center, vertical top)
         s.anchor.set(0.5, 0);
         c.addChild(s);
