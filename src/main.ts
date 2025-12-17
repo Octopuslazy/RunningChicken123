@@ -50,7 +50,26 @@ async function init() {
 
   const canvas = app.canvas as HTMLCanvasElement;
   canvas.style.display = 'block';
+  
+  // Enhanced mobile-first styling
   document.body.style.margin = '0';
+  document.body.style.padding = '0';
+  document.body.style.width = '100%';
+  document.body.style.height = '100%';
+  document.body.style.overflow = 'hidden';
+  document.body.style.position = 'fixed';
+  document.body.style.background = '#000';
+  document.body.style.userSelect = 'none';
+  (document.body.style as any).webkitUserSelect = 'none';
+  (document.body.style as any).webkitTouchCallout = 'none';
+  (document.body.style as any).webkitTapHighlightColor = 'transparent';
+  
+  // Canvas mobile optimizations
+  canvas.style.touchAction = 'manipulation';
+  (canvas.style as any).webkitTouchCallout = 'none';
+  canvas.style.webkitUserSelect = 'none';
+  canvas.style.userSelect = 'none';
+  
   // Enforce internal render resolution fixed to WIDTH x HEIGHT.
   try {
     // Use a fixed renderer resolution (1) so game logic coordinates map to WIDTH/HEIGHT.
@@ -81,7 +100,18 @@ async function init() {
       const ch = canvas.clientHeight || window.innerHeight || HEIGHT;
       const scaleX = cw && WIDTH ? (cw / WIDTH) : 1;
       const scale = scaleX || 1;
-      const inv = scale > 0 ? (1 / scale) : 1;
+      
+      // For mobile devices, adjust HUD scaling to be more readable
+      const isMobile = (window as any).__isMobile || 
+                       /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      let inv = scale > 0 ? (1 / scale) : 1;
+      
+      // On mobile, make HUD elements slightly larger for better touch interaction
+      if (isMobile) {
+        inv = Math.max(inv * 0.85, 0.6); // Minimum 60% size, but prefer 85% of calculated
+      }
+      
       hudLayer.scale.set(inv, inv);
       hudLayer.position.set(0, 0);
     } catch (e) {}
@@ -167,30 +197,78 @@ async function init() {
   } catch (e) {}
 
   function applyCanvasCssSize() {
-    try {
-      const winW = window.innerWidth || WIDTH;
-      const winH = window.innerHeight || HEIGHT;
-      // Prefer fit-to-height so the game fills vertically on phones.
-      let scale = (winH / HEIGHT) || 1;
-      let cssW = Math.max(1, Math.round(WIDTH * scale));
-      let cssH = Math.max(1, Math.round(HEIGHT * scale));
-
-      // If fitted height produces a canvas wider than the window, fall back to fitting width.
-      if (cssW > winW) {
-        scale = (winW / WIDTH) || 1;
-        cssW = Math.max(1, Math.round(WIDTH * scale));
-        cssH = Math.max(1, Math.round(HEIGHT * scale));
+    const winW = window.innerWidth || WIDTH;
+    const winH = window.innerHeight || HEIGHT;
+    const scaleX = winW / WIDTH;
+    const scaleY = winH / HEIGHT;
+    
+    // Enhanced mobile detection
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                     ('ontouchstart' in window) ||
+                     (navigator.maxTouchPoints > 0) ||
+                     (winW <= 768);
+    
+    const isLandscape = winW > winH;
+    const aspectRatio = winW / winH;
+    
+    // For mobile devices, prioritize filling the screen better
+    let scale: number;
+    
+    if (isMobile) {
+      if (isLandscape) {
+        // Mobile landscape: prioritize filling width, allow some crop on height
+        const fillScale = Math.max(scaleX, scaleY * 0.95);
+        scale = Math.min(fillScale, Math.max(scaleX, scaleY * 0.85));
+      } else {
+        // Mobile portrait: use standard letterbox
+        scale = Math.min(scaleX, scaleY);
       }
+      
+      // For mobile, allow up to 1.2x scale to better fill screen
+      scale = Math.min(scale, 1.2);
+    } else {
+      // Desktop logic: letterbox with optional upscale
+      const rawScale = Math.min(scaleX, scaleY);
+      const allowUpscale = (winW >= 1280 && aspectRatio >= 1.5);
+      const maxScale = allowUpscale ? 1.8 : 1.2;
+      scale = Math.min(rawScale, maxScale);
+    }
+    
+    // Ensure minimum scale for readability
+    scale = Math.max(scale, 0.3);
 
-      canvas.style.width = cssW + 'px';
-      canvas.style.height = cssH + 'px';
-      canvas.style.position = 'absolute';
-      // Center horizontally and align vertically to top (so UI stays visible)
-      const leftPx = Math.round((winW - cssW) / 2);
-      canvas.style.left = (leftPx > 0 ? leftPx : 0) + 'px';
-      canvas.style.top = '0px';
-      canvas.style.transform = '';
-    } catch (e) {}
+    // Set CSS display size (does not affect internal resolution)
+    const cssW = Math.round(WIDTH * scale);
+    const cssH = Math.round(HEIGHT * scale);
+    canvas.style.width = `${cssW}px`;
+    canvas.style.height = `${cssH}px`;
+
+    // Center the canvas in the window (letterbox) and ensure it's positioned
+    canvas.style.position = 'absolute';
+    canvas.style.left = `${Math.round((winW - cssW) / 2)}px`;
+    canvas.style.top = `${Math.round((winH - cssH) / 2)}px`;
+    
+    // Handle safe area insets for mobile devices
+    if (isMobile && 'CSS' in window && CSS.supports('padding: env(safe-area-inset-top)')) {
+      try {
+        const safeTop = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-top)');
+        const safeBottom = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)');
+        const safeLeft = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-left)');
+        const safeRight = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-right)');
+        
+        if (safeTop || safeBottom || safeLeft || safeRight) {
+          canvas.style.marginTop = safeTop || '0px';
+          canvas.style.marginBottom = safeBottom || '0px';
+          canvas.style.marginLeft = safeLeft || '0px';
+          canvas.style.marginRight = safeRight || '0px';
+        }
+      } catch (e) {}
+    }
+    
+    // Store scale for other systems to use
+    (window as any).__gameScale = scale;
+    (window as any).__isMobile = isMobile;
+    (window as any).__isLandscape = isLandscape;
   }
   applyCanvasCssSize();
   try { updateHudScale(); } catch (e) {}
@@ -1539,6 +1617,7 @@ async function init() {
   let gameOverQueuedTimer: ReturnType<typeof setTimeout> | null = null;
   let gameOverQueuedReason: string | null = null;
   let collisionEffectPlaying = false;
+  let gameStartTime = 0; // Track when game started to prevent immediate game over
 
   async function restartGame() {
     try { SoundController.stopAll(); } catch (e) {}
@@ -1547,6 +1626,7 @@ async function init() {
     gameOver = false;
     playerDead = false;
     controlsEnabled = false; // Tạm tắt controls trong khi restart
+    gameStartTime = Date.now(); // Set game start time for grace period
     
     // Clear queued game over
     if (gameOverQueuedTimer) {
@@ -1783,27 +1863,40 @@ async function init() {
   app.ticker.add(() => {
     // Always perform an offscreen-Y check (even if controlsDisabled)
     try {
-      if (!gameOver && player && player.sprite) {
-        const gpNow = (player.sprite && typeof (player.sprite as any).getGlobalPosition === 'function') ? (player.sprite as any).getGlobalPosition() : { x: (player.worldX || 0) + (world.x || 0), y: (player.y || 0) + (world.y || 0) };
-        const canvasHNow = (canvas && canvas.clientHeight) ? canvas.clientHeight : window.innerHeight;
+      // Add grace period check - don't trigger game over in first 2 seconds after game start
+      const timeSinceStart = Date.now() - gameStartTime;
+      const inGracePeriod = timeSinceStart < 2000; // 2 second grace period
+      
+      if (!gameOver && player && player.sprite && controlsEnabled && !inGracePeriod) {
+        // Use internal game coordinates instead of screen coordinates
+        const playerY = player.y || 0;
+        const internalGameHeight = HEIGHT; // Use internal game resolution, not canvas CSS size
         
-        if ((gpNow.y || 0) > (canvasHNow + 100)) {
+        // Check if player fell below internal game bounds (more generous threshold)
+        if (playerY > (internalGameHeight + 200)) {
           try { doGameOver && doGameOver('fell_offscreen', true); } catch (e) { try { queueGameOver('fell_offscreen'); } catch (e2) {} }
         }
-        // also force by vertical gap relative to surface
+        
+        // Check vertical gap relative to surface using internal coordinates
         try {
           const handlerNow = (gameplay as any)?._handler;
           let surfaceYNow = groundY;
           try { if (handlerNow && typeof handlerNow.getSurfaceYAt === 'function') surfaceYNow = handlerNow.getSurfaceYAt(player.worldX); } catch (e) {}
-          const vGapNow = (player && typeof player.y === 'number' ? player.y : 0) - (surfaceYNow || 0);
+          const vGapNow = playerY - (surfaceYNow || 0);
          
-          if (vGapNow > 100) {
+          // More generous threshold for vertical gap (was 100, now 400)
+          if (vGapNow > 400) {
             try { doGameOver && doGameOver('fell_too_far', true); } catch (e) { try { queueGameOver('fell_too_far'); } catch (e2) {} }
           }
         } catch (e) {}
       }
     } catch (e) {}
-    if (gameOver || !controlsEnabled) return; // Thêm check controlsEnabled để tránh trigger khi restart
+    if (gameOver || !controlsEnabled) return;
+    
+    // Additional grace period check for main game logic
+    const timeSinceStart = Date.now() - gameStartTime;
+    const inGracePeriod = timeSinceStart < 2000;
+    if (inGracePeriod) return;
     try {
       try {
         const overPit = (gameplay as any).isOverPit ? (gameplay as any).isOverPit(player.worldX) : false;
@@ -1818,14 +1911,11 @@ async function init() {
         }
       } catch (e) {}
 
-      // Use global position to account for `root` transforms (scale/translate)
-      const gp = (player.sprite && typeof (player.sprite as any).getGlobalPosition === 'function') ? (player.sprite as any).getGlobalPosition() : { x: (player.worldX || 0) + (world.x || 0), y: (player.y || 0) + (world.y || 0) };
-      const screenY = gp.y || 0;
+      // Use internal game coordinates instead of screen coordinates for consistency
+      const playerY = player.y || 0;
+      const internalGameHeight = HEIGHT; // Use internal game resolution consistently
 
-      // Removed left/behind-camera death: player may be pushed back without dying.
-      // Only trigger fall-offscreen by Y coordinate (use canvas client height).
-      const canvasH = (canvas && canvas.clientHeight) ? canvas.clientHeight : window.innerHeight;
-      // Also consider world-relative fall distance from the current surface.
+      // Also consider world-relative fall distance from the current surface using internal coords
       try {
         const handler = (gameplay as any)?._handler;
         let surfaceY = groundY;
@@ -1850,14 +1940,17 @@ async function init() {
             }
           }
         } catch (e) {}
-        const verticalGap = (player && typeof player.y === 'number' ? player.y : 0) - (surfaceY || 0);
-        if (verticalGap > 300) {
+        const verticalGap = playerY - (surfaceY || 0);
+        
+        // Use more generous thresholds that work consistently across all screen sizes
+        if (verticalGap > 500) { // Increased from 300 to 500
           queueGameOver('fell_too_far');
-        } else if (screenY > (canvasH + 500)) {
+        } else if (playerY > (internalGameHeight + 300)) { // Use internal coords + buffer instead of canvas size
           queueGameOver('fell_offscreen');
         }
       } catch (e) {
-        if (screenY > (canvasH + 500)) {
+        // Fallback: use internal coordinates
+        if (playerY > (internalGameHeight + 300)) {
           queueGameOver('fell_offscreen');
         }
       }
@@ -1865,18 +1958,56 @@ async function init() {
   });
 
   function updateScale() {
-    const sw = canvas.clientWidth || window.innerWidth;
-    const sh = canvas.clientHeight || window.innerHeight;
-    let scale = Math.min((sw * 0.65) / WIDTH, (sh * 0.65) / HEIGHT);
-    scale = Math.min(scale, 1);
+    // Reset scale of the internal world: CSS handles visual scaling now.
+    try {
+      root.scale.set(1, 1);
+      root.position.set(0, 0);
+    } catch (e) {}
 
-    root.scale.set(scale, scale);
-    currentScale = scale;
-    root.x = (sw - WIDTH * scale) / 2;
-    root.y = (sh - HEIGHT * scale) / 2;
-    // Intentionally do not call player.setScreenScale here so the player
-    // scales together with `root.scale` (keep uniform scaling across scene).
+    // Update HUD layout if needed
     try { layoutHud(); } catch (e) {}
+
+    // Use the same scale calculation logic from applyCanvasCssSize()
+    const winW = window.innerWidth || WIDTH;
+    const winH = window.innerHeight || HEIGHT;
+    const scaleX = winW / WIDTH;
+    const scaleY = winH / HEIGHT;
+    
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+                     ('ontouchstart' in window) ||
+                     (navigator.maxTouchPoints > 0) ||
+                     (winW <= 768);
+    
+    const isLandscape = winW > winH;
+    const aspectRatio = winW / winH;
+    
+    let s: number;
+    
+    if (isMobile) {
+      if (isLandscape) {
+        // Mobile landscape: prioritize filling width, allow some crop on height
+        const fillScale = Math.max(scaleX, scaleY * 0.95);
+        s = Math.min(fillScale, Math.max(scaleX, scaleY * 0.85));
+      } else {
+        // Mobile portrait: use standard letterbox
+        s = Math.min(scaleX, scaleY);
+      }
+      
+      // For mobile, allow up to 1.2x scale to better fill screen
+      s = Math.min(s, 1.2);
+    } else {
+      // Desktop logic: letterbox with optional upscale
+      const rawScale = Math.min(scaleX, scaleY);
+      const allowUpscale = (winW >= 1280 && aspectRatio >= 1.5);
+      const maxScale = allowUpscale ? 1.8 : 1.2;
+      s = Math.min(rawScale, maxScale);
+    }
+    
+    // Ensure minimum scale for readability
+    s = Math.max(s, 0.3);
+    
+    currentScale = s;
+    try { window.dispatchEvent(new CustomEvent('screen-scale', { detail: { scale: currentScale } })); } catch (e) {}
   }
 
   updateScale();
@@ -1888,7 +2019,7 @@ async function init() {
   } catch (e) {}
 
   try { await startGame(); } catch (e) {}
-  try { controlsEnabled = true; } catch (e) {}
+  try { controlsEnabled = true; gameStartTime = Date.now(); } catch (e) {}
 
   function onResize() {
     applyCanvasCssSize();
@@ -1945,7 +2076,47 @@ async function init() {
   try { applyGroundCounterScale(currentScale); } catch (e) {}
 
   window.addEventListener('resize', onResize);
-  window.addEventListener('orientationchange', onResize);
+  
+  // Enhanced orientation change handling for mobile devices
+  let orientationTimer: number | null = null;
+  
+  function handleOrientationChange() {
+    // Clear existing timer
+    if (orientationTimer) {
+      clearTimeout(orientationTimer);
+    }
+    
+    // Delay handling to allow mobile browsers to complete orientation change
+    orientationTimer = window.setTimeout(() => {
+      try {
+        // Force a layout recalculation
+        if (document.body) {
+          document.body.style.height = '100%';
+          document.body.style.width = '100%';
+        }
+        
+        // Additional delay for mobile browsers that need more time
+        window.setTimeout(() => {
+          try {
+            onResize();
+            // Force a second layout update for stubborn mobile browsers
+            window.setTimeout(onResize, 100);
+          } catch (e) {}
+        }, 100);
+      } catch (e) {}
+    }, 300);
+  }
+  
+  window.addEventListener('orientationchange', handleOrientationChange);
+  
+  // Also listen to screen orientation API if available
+  if (screen && screen.orientation) {
+    screen.orientation.addEventListener('change', handleOrientationChange);
+  }
+  
+  // Additional mobile-specific event listeners
+  window.addEventListener('load', onResize);
+  document.addEventListener('DOMContentLoaded', onResize);
 }
 
 init();
