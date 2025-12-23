@@ -24,26 +24,28 @@ export function showGameOver(params: ShowGameOverParams) {
   let originalCanvasHeight = 0;
 
   try {
-    // FORCE TRUE FULLSCREEN: Temporarily modify renderer to match window
+    // DO NOT resize the renderer here. Resizing caused scale/position issues
+    // when returning to gameplay on mobile. Instead use the renderer's
+    // internal logical size for overlay coordinates so the canvas CSS
+    // scale is preserved.
     const sw = window.innerWidth;
     const sh = window.innerHeight;
-    
-    // Store original renderer state
+
+    // Store original renderer state (kept for backwards-compatible restore)
     originalWidth = app.renderer.width;
     originalHeight = app.renderer.height;
     originalCanvasWidth = app.canvas.width;
     originalCanvasHeight = app.canvas.height;
-    
-    // Force renderer to match window size for fullscreen overlay
-    try {
-      app.renderer.resize(sw, sh);
-      app.canvas.style.width = `${sw}px`;
-      app.canvas.style.height = `${sh}px`;
-    } catch (e) {}
-    
-    // Use window dimensions directly
-    const gameLogicalW = sw;
-    const gameLogicalH = sh;
+
+    // Use renderer's internal resolution for drawing the overlay so we
+    // don't touch CSS/display size which causes mobile scale jumps.
+    const gameLogicalW = app.renderer.width;
+    const gameLogicalH = app.renderer.height;
+    // Also capture CSS size for debug/positioning if needed
+    const canvasRect = canvas.getBoundingClientRect();
+    const cssW = canvasRect.width || sw;
+    const cssH = canvasRect.height || sh;
+    try { console.log(`[GAMEOVER] overlay using renderer ${gameLogicalW}x${gameLogicalH}, css ${cssW}x${cssH}`); } catch (e) {}
     const fullScreenScale = 1.0;
 
     // Try to use a gameover image, otherwise fall back to a dark overlay
@@ -61,7 +63,7 @@ export function showGameOver(params: ShowGameOverParams) {
             (bg as any).beginFill && (bg as any).beginFill(0x333333, 0.6);
           }
         } catch (e) {}
-        try { (bg as any).rect ? (bg as any).rect(0, 0, sw, sh) : (bg as any).drawRect && (bg as any).drawRect(0, 0, sw, sh); } catch (e) {}
+        try { (bg as any).rect ? (bg as any).rect(0, 0, gameLogicalW, gameLogicalH) : (bg as any).drawRect && (bg as any).drawRect(0, 0, gameLogicalW, gameLogicalH); } catch (e) {}
         try { (bg as any).endFill && (bg as any).endFill(); } catch (e) {}
         try { bg.interactive = true; } catch (e) {}
 
