@@ -269,6 +269,7 @@ async function init() {
     (window as any).__gameScale = scale;
     (window as any).__isMobile = isMobile;
     (window as any).__isLandscape = isLandscape;
+    console.log(`[SCALE] CSS Scale: ${scale}, Canvas: ${cssW}x${cssH}, Window: ${winW}x${winH}, Mobile: ${isMobile}, Landscape: ${isLandscape}`);
   }
   
   // Rotation overlay system
@@ -1066,7 +1067,8 @@ async function init() {
               const TARGET_SCREEN_X = Math.round(WIDTH / 3);
               const desiredScroll = targetWorldX - TARGET_SCREEN_X;
               world.x = -desiredScroll;
-              world.y = -100; // Maintain camera Y offset
+              world.y = 250; // Maintain camera Y offset - higher camera
+              console.log(`[CAMERA] Restart Update - world.x: ${world.x}, world.y: ${world.y}, targetWorldX: ${targetWorldX}`);
               if (handler) {
                 try { handler.scroll = desiredScroll; } catch (e) {}
                 // DISABLED: Don't set handler.world.x - it conflicts with main world.x
@@ -1153,11 +1155,19 @@ async function init() {
 
   let currentScale = 1;
   const PLAYER_SPEED_FACTOR = 1.0;
+  let debugFrameCount = 0;
 
     app.ticker.add(() => {
     const deltaSec = (app.ticker as any).deltaMS / 1000;
 
     if (!gameplay) return;
+    
+    // Debug camera position every 60 frames (approximately 1 second)
+    debugFrameCount++;
+    if (debugFrameCount >= 60) {
+      debugFrameCount = 0;
+      console.log(`[CAMERA] Live - world.x: ${world.x}, world.y: ${world.y}, player.worldX: ${player?.worldX}, player.y: ${player?.y}`);
+    }
     
     // CRITICAL: Update Spine animation in render loop
     try {
@@ -1282,13 +1292,14 @@ async function init() {
       }
     } catch (e) {}
 
-    // Camera follow: keep player at 1/3 of screen X and raise camera Y by 100px
+    // Camera follow: keep player at 1/3 of screen X and raise camera Y by 200px
     try {
       const TARGET_SCREEN_X = Math.round(WIDTH / 3);
       const desiredScroll = (player && typeof player.worldX === 'number') ? (player.worldX - TARGET_SCREEN_X) : scroll;
       try { 
         world.x = -desiredScroll; 
-        world.y = -100; // Raise camera Y position by 100px
+        world.y = 250; // Raise camera Y position by 250px
+        console.log(`[CAMERA] Follow - world.x: ${world.x}, world.y: ${world.y}, player.worldX: ${player?.worldX}, desiredScroll: ${desiredScroll}`);
       } catch (e) {}
       try {
         const handler = (gameplay as any)?._handler;
@@ -1832,7 +1843,8 @@ async function init() {
       const TARGET_SCREEN_X = Math.round(WIDTH / 3);
       const desiredScroll = PLAYER_X - TARGET_SCREEN_X;
       world.x = -desiredScroll;
-      world.y = -100; // Maintain camera Y offset
+      world.y = 250; // Maintain camera Y offset - consistent with runtime camera
+      console.log(`[CAMERA] Restart - world.x: ${world.x}, world.y: ${world.y}, PLAYER_X: ${PLAYER_X}, TARGET_SCREEN_X: ${TARGET_SCREEN_X}`);
     } catch (e) {}
 
     // Clear death handled/invincibility flags
@@ -1844,7 +1856,10 @@ async function init() {
     controlsEnabled = true;
     (window as any).__controlsEnabled = true;
     
-    isRestarting = false; // Re-enable scale changes
+    // Delay before re-enabling scale changes to ensure restart is fully complete
+    setTimeout(() => {
+      isRestarting = false; // Re-enable scale changes after restart completes
+    }, 100);
   }
 
   let controlsEnabled = false;
