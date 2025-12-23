@@ -503,15 +503,7 @@ async function init() {
   const PLAYER_SPAWN_LIFT = 80;
   let player: any = null;
   
-  // Debug hitbox - circle
-  const debugHitbox = new Graphics();
-  debugHitbox.circle(0, 0, playerRadius)
-    .fill({ color: 0xff0000, alpha: 0.3 })
-    .stroke({ color: 0xff0000, width: 3 });
-  debugHitbox.alpha = 0.8;
-  
   // Tạo nhân vật với graphics fallback trước - sẽ được thay thế bằng spine
-  console.log('Creating initial character with red circle fallback');
   player = createCharacter({ 
     PLAYER_X, 
     playerRadius, 
@@ -529,12 +521,7 @@ async function init() {
   player.sprite.visible = true;
   player.sprite.alpha = 1;
   
-  // Thêm debug hitbox
-  try { root.addChild(debugHitbox); } catch (e) { app.stage.addChild(debugHitbox); }
   player.sprite.x = PLAYER_X;
-  
-  // Add initial sprite to world with debug
-  console.log('Adding initial red circle to world');
   world.addChild(player.sprite);
   player.sprite.y = player.y;
 
@@ -1200,9 +1187,7 @@ async function init() {
 
     player.update(deltaSec, scroll, speed);
     
-    // Update debug hitbox position
-    debugHitbox.x = player.worldX + (world.x || 0);
-    debugHitbox.y = player.y;
+    // (removed debug hitbox)
     // Ensure player sprite keeps the initial centered anchor/pivot (never anchored at feet)
     try {
       const sAny: any = player.sprite;
