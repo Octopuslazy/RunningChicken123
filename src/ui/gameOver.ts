@@ -168,6 +168,12 @@ export function showGameOver(params: ShowGameOverParams) {
       try { overlayContainer && overlayContainer.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) { try { app.stage.addChild(btnText); } catch (e) {} } }
 
       const cleanupAndReset = () => {
+        // First, restore renderer/canvas to original size so gameplay isn't affected
+        try {
+          try { app.renderer.resize(originalWidth, originalHeight); } catch (e) {}
+          try { app.canvas.style.width = `${originalCanvasWidth}px`; app.canvas.style.height = `${originalCanvasHeight}px`; } catch (e) {}
+        } catch (e) {}
+
         try { if (_btnPulseTicker) { try { app.ticker.remove(_btnPulseTicker); } catch (e) {} _btnPulseTicker = null; } } catch (e) {}
         try { if (overlayContainer && overlayContainer.parent) overlayContainer.parent.removeChild(overlayContainer); } catch (e) { try { if (overlayContainer && root && overlayContainer.parent) root.removeChild(overlayContainer); } catch (e) {} }
         try { if (gt && gt.parent) gt.parent.removeChild(gt); } catch (e) { try { if (gt && root) root.removeChild(gt); } catch (e) {} }
