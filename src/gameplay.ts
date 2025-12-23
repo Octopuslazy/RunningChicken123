@@ -92,7 +92,7 @@ export class MapHandler {
       p.container.x = startX;
       // place container vertically so pattern's ground (y=0) aligns with world ground
       // raise patterns slightly (20px) so visuals sit a bit higher on screen
-      p.container.y = this.groundY + this.patternYOffset - 30;
+      p.container.y = this.groundY + this.patternYOffset - 50;
       this.world.addChild(p.container);
       // compute visual bounds of the pattern container and record the
       // active world span using the container's local bounds. This ensures
