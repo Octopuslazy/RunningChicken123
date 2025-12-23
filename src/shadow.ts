@@ -46,6 +46,13 @@ export class PlayerShadow {
     try {
       if (!this.shadow) return;
 
+      // Check if player is over a pit - if so, hide the shadow
+      const overPit = (this.gameplay && (this.gameplay as any).isOverPit) ? (this.gameplay as any).isOverPit(this.player.worldX) : false;
+      if (overPit) {
+        this.shadow.visible = false;
+        return;
+      }
+
       const handler = (this.gameplay as any)._handler;
       const obstacles = (this.gameplay as any).getObstacles ? (this.gameplay as any).getObstacles() : [];
 
