@@ -900,9 +900,8 @@ async function init() {
   async function startGame() {
     try {
       // Khởi tạo gameplay trước
-      try {
-        // Enable pattern hitbox debug so plane colliders are visible for troubleshooting
-        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: 0, patternGroundThickness: 160, patternObstaclePadding: 24, patternHitboxDebug: true });
+        try {
+        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: 0, patternGroundThickness: 160, patternObstaclePadding: 24 });
         try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
       } catch (e) {}
 
@@ -1019,7 +1018,6 @@ async function init() {
         // Setup handler debug keys
         try {
           if (handler) {
-            try { handler.toggleHitboxes(); } catch (e) {}
             try {
               if (player && (player as any).getGroundY === undefined) {
                 (player as any).getGroundY = (wx: number) => {
@@ -1027,14 +1025,6 @@ async function init() {
                 };
               }
             } catch (e) {}
-            window.addEventListener('keydown', (ev) => {
-              if (ev.code === 'KeyH') {
-                try { 
-                  const newState = handler.toggleHitboxes();
-
-                } catch (e) {}
-              }
-            });
           }
         } catch (e) {}
 

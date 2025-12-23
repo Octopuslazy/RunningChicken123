@@ -36,13 +36,12 @@ export class MapHandler {
   private pits: { x: number; width: number }[] = [];
   private obstacles: { x: number; width: number; height: number; sprite: Graphics }[] = [];
   private obstaclesContainer: Container;
-  private hitboxDebug = false;
   private groundThickness = 8;
   private obstaclePadding = 0;
   // allow toggling random obstacle spawning (useful for debugging/testing)
   public allowRandomObstacles = true;
 
-  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
+  constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
     this.world = options.world;
     this.bg = options.bg;
     this.label = options.label;
@@ -55,7 +54,6 @@ export class MapHandler {
 
     this.obstaclesContainer = new Container();
     this.world.addChild(this.obstaclesContainer);
-    this.hitboxDebug = !!(options as any).patternHitboxDebug;
     // Increase ground collider thickness by 2.5x as requested so ground hitboxes
     // are taller. If a patternGroundThickness option is provided use it,
     // otherwise fall back to the default and then multiply.
@@ -124,26 +122,8 @@ export class MapHandler {
           // and allocations that cause GC/render cost on mobile.
           let gcol: any = null;
           const colliderY = worldGroundTop - groundThickness;
-          if (this.hitboxDebug) {
-            gcol = new Graphics();
-            gcol.clear();
-            try {
-              if (typeof (gcol as any).fill === 'function') {
-                try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
-              } else {
-                (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
-              }
-            } catch (e) {}
-            try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
-            try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
-            gcol.x = visualStart;
-            gcol.y = colliderY;
-            gcol.visible = true;
-            try { this.obstaclesContainer.addChild(gcol); } catch (e) {}
-          } else {
-            // lightweight collider object used for collision math only
-            gcol = { y: colliderY };
-          }
+          // lightweight collider object used for collision math only
+          gcol = { y: colliderY };
           this.obstacles.push({ x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any);
         } catch (e) {
           // ignore collider creation errors
@@ -167,44 +147,15 @@ export class MapHandler {
           // If this obstacle is a plane, scale its collider height by 1.5
           const gh = (ob as any).isPlane ? Math.round(baseGh * 1.5) : baseGh;
           const gw = ob.width;
-          const g = new Graphics();
-          // draw hitbox; visibility controlled by hitboxDebug for debugging
-          g.clear();
-          // Draw hitbox fill - different colors for different obstacle types
-          try {
-            const showHitbox = this.hitboxDebug || (ob as any).isPlane;
-            if (showHitbox) {
-              // Prefer obstacle-provided debugColor/debugAlpha when available
-              const color = (ob as any).debugColor !== undefined ? (ob as any).debugColor : ((ob as any).isPlane ? 0x0099ff : 0xff0000);
-              const alpha = (ob as any).debugAlpha !== undefined ? (ob as any).debugAlpha : ((ob as any).isPlane ? 0.4 : 0.25);
-              
-              if (typeof (g as any).fill === 'function') {
-                try { (g as any).fill(color, alpha); } catch (e) { try { (g as any).fill({ color: color, alpha: alpha }); } catch (e) {} }
-              } else {
-                (g as any).beginFill && (g as any).beginFill(color, alpha);
-              }
-              
-              try { (g as any).rect ? (g as any).rect(0, 0, gw, gh) : (g as any).drawRect && (g as any).drawRect(0, 0, gw, gh); } catch (e) {}
-              try { (g as any).endFill && (g as any).endFill(); } catch (e) {}
-            }
-          } catch (e) {}
-          // place hitbox
-          g.x = gx;
+          // lightweight collider object for runtime checks (no display object)
+          const g = { x: gx, y: 0, visible: false, _lightweight: true } as any;
           if ((ob as any).isPlane && ob.y !== undefined) {
-            // Center the expanded plane collider around the original local y
-            // so the plane's visual position doesn't appear to shift.
             const originalGh = baseGh;
             const extra = gh - originalGh;
             g.y = p.container.y + ob.y - 30 - Math.round(extra / 2);
           } else {
             g.y = worldGroundTop - gh;
           }
-          g.visible = (ob as any).isPlane ? true : this.hitboxDebug;
-          
-
-          
-          this.obstaclesContainer.addChild(g);
-          
           this.obstacles.push({ x: gx, width: gw, height: gh, sprite: g, isGround: !!(ob as any).isGround, isPlane: !!(ob as any).isPlane, planeId: (ob as any).planeId, layer: (ob as any).layer } as any);
         }
       }
@@ -217,25 +168,7 @@ export class MapHandler {
     }
   }
 
-  // Toggle rendering of obstacle hitboxes for debugging alignment issues
-  toggleHitboxes() {
-    this.hitboxDebug = !this.hitboxDebug;
-    try {
-      for (const o of this.obstacles) {
-        if (o && o.sprite) {
-          o.sprite.visible = this.hitboxDebug;
-          try {
-            if (this.hitboxDebug) {
-              (o.sprite as any).alpha = 0.25;
-            } else {
-              (o.sprite as any).alpha = 0;
-            }
-          } catch (e) {}
-        }
-      }
-    } catch (e) {}
-    return this.hitboxDebug;
-  }
+  // (Hitbox debug removed)
 
   // Returns true if the provided worldX is within any active pattern span
   isOnPattern(worldX: number) {
@@ -427,9 +360,9 @@ export class MapHandler {
 // Keep the old createGameplay function but back it with MapHandler so callers
 // in `main.ts` remain compatible. This gives us a clean migration path to
 // building Patterns in the next step.
-export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternHitboxDebug = false, patternGroundThickness = 8, patternObstaclePadding = 12 }:
-  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternHitboxDebug?: boolean; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
-  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternHitboxDebug, patternGroundThickness, patternObstaclePadding });
+export function createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY = HEIGHT - 120, initialSpeed = 200, speedAccel = 8, patternYOffset = 0, patternGroundThickness = 8, patternObstaclePadding = 12 }:
+  { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; speedAccel?: number; patternYOffset?: number; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
+  const handler = new MapHandler({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed, patternYOffset, patternGroundThickness, patternObstaclePadding });
 
   return {
     update: (deltaSec: number) => handler.update(deltaSec, speedAccel),
