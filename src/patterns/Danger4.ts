@@ -1,4 +1,5 @@
 import { Container, Sprite, Texture, Graphics } from 'pixi.js';
+import Pickup from '../prefabs/Pickup';
 import { PatternData, PatternFactory } from '../gameplay';
 
 export interface GroundPatternOptions {
@@ -189,6 +190,23 @@ export function makeGroundPattern(opts: GroundPatternOptions = {}): PatternFacto
       s.y = -rh;
       container.addChild(s);
     }
+
+    // spawn one random pickup on this pattern (50% chance)
+    try {
+      if (Math.random() < 0.5) {
+        const itemType = Math.floor(Math.random() * 7);
+        const tex = Texture.from(`/Assets/_arts/obj_${itemType}.png`);
+        const pu = new Pickup(itemType, tex as any);
+        // position relative to pattern container (center-ish)
+        pu.x = midStart + Math.floor(Math.random() * Math.max(1, Math.floor(length - 80)))+40;
+        pu.y = -500; // place above ground; tweak if needed
+        pu.zIndex = 1200;
+        // allow manual collection on click during testing
+        try { pu.on && pu.on('pointerdown', (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {} try { pu.collect(); } catch (e) {} }); } catch (e) {}
+        container.addChild(pu);
+        try { const g = (window as any).pickups; if (g && Array.isArray(g)) g.push(pu); } catch (e) {}
+      }
+    } catch (e) {}
 
     const visualLength = lw + length + rw;
     // align player to the top of the pattern's thin collider (groundThickness = 8)

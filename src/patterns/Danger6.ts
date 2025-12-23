@@ -1,4 +1,5 @@
 import { Container, Sprite, Texture } from 'pixi.js';
+import Pickup from '../prefabs/Pickup';
 import { PatternData, PatternFactory } from '../gameplay';
 
 export interface Danger6Options {
@@ -47,7 +48,7 @@ export function makeDanger6(opts: Danger6Options = {}): PatternFactory {
     const positions = [leftCenter / visualLength, middleCenter / visualLength, rightCenter / visualLength];
 
     // Spread platforms vertically (top, middle, low) with slight random jitter
-    const baseHeights = [-500, -840, -120];
+    const baseHeights = [-500, -760, -120];
 
     for (let i = 0; i < positions.length; i++) {
       const localCenterX = Math.round(positions[i] * visualLength);
@@ -73,6 +74,21 @@ export function makeDanger6(opts: Danger6Options = {}): PatternFactory {
       const leftLocal = localCenterX - Math.round(colliderWidthScaled / 2);
       patternObstacles.push({ x: leftLocal, width: colliderWidthScaled, height: gh * scale, y: localY, isPlane: true, isPlatform: true, layer: 'Danger', planeId: pid });
     }
+    try {
+          if (Math.random() < 0.5) {
+            const itemType = Math.floor(Math.random() * 7);
+            const tex = Texture.from(`/Assets/_arts/obj_${itemType}.png`);
+            const pu = new Pickup(itemType, tex as any);
+            // position relative to pattern container (center-ish)
+            pu.x = 290;
+            pu.y = -640; // place above ground; tweak if needed
+            pu.zIndex = 1200;
+            // allow manual collection on click during testing
+            try { pu.on && pu.on('pointerdown', (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {} try { pu.collect(); } catch (e) {} }); } catch (e) {}
+            container.addChild(pu);
+            try { const g = (window as any).pickups; if (g && Array.isArray(g)) g.push(pu); } catch (e) {}
+          }
+        } catch (e) {}
 
     const playerYOffset = -8;
     return { length: visualLength, nextStartOffset: 0, difficulty: 'MEDIUM', container, playerYOffset, obstacles: patternObstacles, noGround: true } as PatternData;

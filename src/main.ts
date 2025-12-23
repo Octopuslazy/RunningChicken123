@@ -10,7 +10,6 @@ import makeDanger3 from './patterns/Danger3';
 import makeDanger4 from './patterns/Danger4';
 import makeDanger5 from './patterns/Danger5';
 import makeDanger6 from './patterns/Danger6';
-import Pickup from './prefabs/Pickup';
 import SoundController from './sound/SoundController';
 import showGameOver from './ui/gameOver';
 import PlayerShadow from './shadow';
@@ -84,13 +83,19 @@ async function init() {
   const root = new Container();
   app.stage.addChild(root);
 
+  // Create a dedicated game layer that will be scaled; background layers remain outside it.
+  const GAME_SCALE = 0.85; // Scale the whole game to 85% (reduce size by 15%)
+  const gameLayer = new Container();
+  root.addChild(gameLayer);
+  gameLayer.scale.set(GAME_SCALE, GAME_SCALE);
+
   // HUD layer: not a child of `root` so it does NOT inherit `root.scale`.
   // Place UI elements here so they remain pinned to screen corners.
   const hudLayer = new Container();
   app.stage.addChild(hudLayer);
-  // HUD game layer: child of `root` so it WILL inherit world scaling.
+  // HUD game layer: child of the scaled `gameLayer` so it WILL inherit game scaling.
   const hudGameLayer = new Container();
-  root.addChild(hudGameLayer);
+  gameLayer.addChild(hudGameLayer);
 
   // Keep HUD at constant on-screen size by inverse-scaling it against
   // the canvas CSS scale (canvas.clientWidth / internal WIDTH).
@@ -356,10 +361,11 @@ async function init() {
   });
 
   const world = new Container();
-  root.addChild(world);
+  gameLayer.addChild(world);
 
   const bg = new Graphics().rect(0, 0, WIDTH, HEIGHT).fill({ color: 0x66ccff });
-  world.addChild(bg);
+  // Keep the background outside the scaled game layer so it does NOT scale.
+  try { root.addChildAt(bg, 0); } catch (e) { try { root.addChild(bg); } catch (e) {} }
 
   // Parallax city background
   let cityLayer: { container: import('pixi.js').Container; update: (scroll: number) => void; tileWidth: number; } | null = null;
@@ -509,8 +515,8 @@ async function init() {
     playerRadius, 
     groundY: groundY, 
     texture: undefined, // Dùng graphics trước
-    jumpSpeed: 1400, 
-    gravity: 4000, 
+    jumpSpeed: 1300, 
+    gravity: 5500, 
     screenScale: 0.8 * CHARACTER_SCALE_FACTOR 
   });
 
@@ -772,6 +778,8 @@ async function init() {
   }
 
   const pickups: any[] = [];
+  // expose pickups globally so pattern factories can register spawned pickups
+  try { (window as any).pickups = pickups; } catch (e) {}
   const spawnedPatternContainers: any[] = [];
   let score = 0;
   let prevScore = 0;
@@ -840,6 +848,9 @@ async function init() {
 
   let spaceHeld = false;
   let pointerHeld = false;
+  // When true the next global pointerdown will be consumed (ignored)
+  // This prevents UI spam from causing an immediate jump after respawn/restart.
+  let consumeNextPointerDown = false;
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp') {
       e.preventDefault();
@@ -866,6 +877,13 @@ async function init() {
   });
 
   window.addEventListener('pointerdown', (e) => {
+    // If we're consuming the next pointerdown (e.g. just respawned), consume it
+    if (consumeNextPointerDown) {
+      consumeNextPointerDown = false;
+      pointerHeld = true; // mark held so additional pointerdowns are ignored until pointerup
+      return;
+    }
+
     if (!pointerHeld) {
       pointerHeld = true;
       try {
@@ -961,32 +979,7 @@ async function init() {
           // Store factory for dynamic generation
           handler.storePatternFactory(factoryToUse);
 
-          try {
-            const SPAWN_CHANCE = 0.25;
-            if (i > 0 && Math.random() < SPAWN_CHANCE) {
-              const ITEM_COUNT = 3 + Math.floor(Math.random() * 4);
-              const itemType = Math.floor(Math.random() * 7);
-              const texPath = `/Assets/_arts/obj_${itemType}.png`;
-              const tex = Texture.from(texPath);
-              const visualLengthLocal = (() => { try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; } })();
-              if (visualLengthLocal > 120) {
-                const padding = 40;
-                const baseXLocal = padding + Math.floor(Math.random() * Math.max(1, Math.floor(visualLengthLocal - padding * 2)));
-                const spacing = Math.min(72, Math.max(40, Math.floor(visualLengthLocal / (ITEM_COUNT + 1))));
-                const heightAbove = 300 + Math.floor(Math.random() * 301);
-                for (let ii = 0; ii < ITEM_COUNT; ii++) {
-                  try {
-                    const prefab = new Pickup(itemType, tex as any);
-                    prefab.x = baseXLocal + ii * spacing;
-                    prefab.y = -heightAbove;
-                    prefab.zIndex = 1200;
-                    p.container.addChild(prefab);
-                    pickups.push(prefab);
-                  } catch (e) {}
-                }
-              }
-            }
-          } catch (e) {}
+          // Random item spawning on patterns removed (user will re-add later)
 
           let visualLength = p && p.container ? (() => {
             try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; }
@@ -1186,8 +1179,31 @@ async function init() {
     (app as any).__prevPlayerBottom = player.y + playerRadius;
 
     player.update(deltaSec, scroll, speed);
-    
-    // (removed debug hitbox)
+
+    // pickup collision: check player against pattern-spawned pickups
+    try {
+      for (let pi = pickups.length - 1; pi >= 0; pi--) {
+        const pu: any = pickups[pi];
+        if (!pu) { pickups.splice(pi, 1); continue; }
+        try { if (pu.collected) { pickups.splice(pi, 1); continue; } } catch (e) {}
+        try {
+          const b = pu.getBounds();
+          const cx = b.x + (b.width || 0) / 2;
+          const cy = b.y + (b.height || 0) / 2;
+          const playerGlobalX = (player.worldX || 0) + (world.x || 0);
+          const playerGlobalY = player.y;
+          const dx = cx - playerGlobalX;
+          const dy = cy - playerGlobalY;
+          const pickRadius = Math.max(16, Math.min(b.width || 32, b.height || 32) / 2);
+          const r = playerRadius + pickRadius;
+          if ((dx * dx + dy * dy) <= (r * r)) {
+            try { pu.collect(); } catch (e) {}
+            try { if (pu.parent) pu.parent.removeChild(pu); } catch (e) {}
+            pickups.splice(pi, 1);
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
     // Ensure player sprite keeps the initial centered anchor/pivot (never anchored at feet)
     try {
       const sAny: any = player.sprite;
@@ -1692,19 +1708,24 @@ async function init() {
 
           try { app.stage.addChild(overlay); } catch (e) { try { root.addChild(overlay); } catch (e) {} }
 
-          btnG.on && btnG.on('pointerdown', () => {
+          btnG.on && btnG.on('pointerdown', (e: any) => {
+            try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
             try {
               try { window.open(REWARD_URL, '_blank'); } catch (e) { try { window.location.href = REWARD_URL; } catch (e) {} }
             } catch (e) {}
             try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
           });
 
-          closeG.on && closeG.on('pointerdown', () => {
+          closeG.on && closeG.on('pointerdown', (e: any) => {
+            try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
             try { if (overlay.parent) overlay.parent.removeChild(overlay); } catch (e) {}
             try {
               rewardActive = false;
               rewardPermanentStop = false;
               controlsEnabled = true;
+              // Clear held input state and consume the next pointerdown so clicking "Later"
+              // doesn't immediately trigger a jump due to spam/click-through.
+              try { pointerHeld = false; spaceHeld = false; consumeNextPointerDown = true; } catch (e) {}
               try { app.ticker && app.ticker.start && app.ticker.start(); } catch (e) {}
             } catch (e) {}
           });
@@ -1830,6 +1851,9 @@ async function init() {
     // Bật lại controls sau khi startGame hoàn thành
     controlsEnabled = true;
     (window as any).__controlsEnabled = true;
+    // Clear held input state and consume the next pointerdown so spam clicks
+    // during the UI don't immediately trigger a jump.
+    try { pointerHeld = false; spaceHeld = false; consumeNextPointerDown = true; } catch (e) {}
     
     // Delay before re-enabling scale changes to ensure restart is fully complete
     setTimeout(() => {
@@ -1917,6 +1941,9 @@ async function init() {
           try { playerDead = false; controlsEnabled = true; (window as any).__controlsEnabled = true; } catch (e) {}
           try { playerInvincible = true; deathHandled = false; } catch (e) {}
 
+          // Clear any held input state so the player can jump immediately after respawn
+          try { pointerHeld = false; spaceHeld = false; } catch (e) {}
+
           // slow camera to 50% for 5s (user-requested)
           try {
             const handler = (gameplay as any)._handler;
@@ -1951,7 +1978,10 @@ async function init() {
               }
             } catch (e) {}
 
-            try { player.worldX = targetWorldX; } catch (e) {}
+              try { player.worldX = targetWorldX; } catch (e) {}
+            // Consume next pointerdown so any spam clicks that happened during UI
+            // don't immediately trigger a jump when controls are re-enabled.
+            try { pointerHeld = false; spaceHeld = false; consumeNextPointerDown = true; } catch (e) {}
             try { player.vy = 0; } catch (e) {}
             try {
               let surfaceY = groundY;

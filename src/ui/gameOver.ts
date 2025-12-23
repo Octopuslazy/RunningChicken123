@@ -195,7 +195,7 @@ export function showGameOver(params: ShowGameOverParams) {
       };
 
       // Respawn button will be added below Play Again if onRespawn provided
-      try { btnBg.on && btnBg.on('pointerdown', onDown); } catch (e) {}
+      try { btnBg.on && btnBg.on('pointerdown', (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {} try { onDown(); } catch (e) {} }); } catch (e) {}
 
       // Add Respawn button (below Play Again)
       try {
@@ -238,7 +238,7 @@ export function showGameOver(params: ShowGameOverParams) {
             try { cleanupAndReset(); } catch (e) {}
             try { onRespawn && onRespawn(); } catch (e) {}
           };
-          try { respBg.on && respBg.on('pointerdown', onRespDown); } catch (e) {}
+          try { respBg.on && respBg.on('pointerdown', (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {} try { onRespDown(); } catch (e) {} }); } catch (e) {}
         }
       } catch (e) {}
 

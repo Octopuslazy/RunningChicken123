@@ -104,7 +104,7 @@ export function showStartScreen(params: ShowStartParams) {
       } catch (e) {}
     };
 
-    try { btnBg.on && btnBg.on('pointerdown', onPress); } catch (e) {}
+    try { btnBg.on && btnBg.on('pointerdown', (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {} try { onPress(); } catch (e) {} }); } catch (e) {}
 
     // small pulse for the Play button
     try {
