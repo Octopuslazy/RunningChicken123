@@ -409,8 +409,8 @@ async function init() {
         const s = new Sprite(bigTex as any);
         // Adjust X position when anchor is center (0.5) - add half tile width offset
         s.x = i * extendedTileW + (tileW / 2);
-        // Position higher up for mobile landscape visibility
-        s.y = 20;
+        // Position slightly lower (move down by 20px)
+        s.y = 60;
         // Set anchor to center-top (horizontal center, vertical top)
         s.anchor.set(0.5, 0);
         c.addChild(s);
@@ -437,8 +437,8 @@ async function init() {
         const s = new Sprite(smallTex as any);
         // Adjust X position when anchor is center (0.5) - add half tile width offset  
         s.x = i * extendedTileWS + (tileW / 2);
-        // Position higher up for mobile landscape visibility
-        s.y = 60;
+        // Position slightly lower (move down by 20px)
+        s.y = 80;
         // Set anchor to center-top (horizontal center, vertical top)
         s.anchor.set(0.5, 0);
         c.addChild(s);
