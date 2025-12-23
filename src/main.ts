@@ -211,23 +211,20 @@ async function init() {
     const isLandscape = winW > winH;
     const aspectRatio = winW / winH;
     
-    // For mobile devices, prioritize filling the screen better
+    // FOCUS ON MOBILE LANDSCAPE - optimal experience
     let scale: number;
     
     if (isMobile) {
       if (isLandscape) {
-        // Mobile landscape: prioritize filling width, allow some crop on height
-        const fillScale = Math.max(scaleX, scaleY * 0.95);
-        scale = Math.min(fillScale, Math.max(scaleX, scaleY * 0.85));
+        // Mobile landscape: OPTIMAL - fill screen maximally
+        scale = Math.max(scaleX, scaleY * 0.9);
+        scale = Math.min(scale, 1.5); // Allow up to 1.5x for better mobile experience
       } else {
-        // Mobile portrait: use standard letterbox
-        scale = Math.min(scaleX, scaleY);
+        // Mobile portrait: minimal scale, encourage rotation
+        scale = Math.min(scaleX, scaleY) * 0.6; // Smaller scale to encourage landscape
       }
-      
-      // For mobile, allow up to 1.2x scale to better fill screen
-      scale = Math.min(scale, 1.2);
     } else {
-      // Desktop logic: letterbox with optional upscale
+      // Desktop logic: standard letterbox
       const rawScale = Math.min(scaleX, scaleY);
       const allowUpscale = (winW >= 1280 && aspectRatio >= 1.5);
       const maxScale = allowUpscale ? 1.8 : 1.2;
@@ -236,6 +233,9 @@ async function init() {
     
     // Ensure minimum scale for readability
     scale = Math.max(scale, 0.3);
+    
+    // Handle rotation overlay for mobile devices
+    handleRotationOverlay(isMobile, isLandscape);
 
     // Set CSS display size (does not affect internal resolution)
     const cssW = Math.round(WIDTH * scale);
@@ -269,6 +269,79 @@ async function init() {
     (window as any).__gameScale = scale;
     (window as any).__isMobile = isMobile;
     (window as any).__isLandscape = isLandscape;
+  }
+  
+  // Rotation overlay system
+  let rotationOverlay: HTMLDivElement | null = null;
+  
+  function createRotationOverlay() {
+    if (rotationOverlay) return rotationOverlay;
+    
+    rotationOverlay = document.createElement('div');
+    rotationOverlay.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 24px;
+      font-weight: bold;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      z-index: 99999;
+      backdrop-filter: blur(5px);
+    `;
+    
+    rotationOverlay.innerHTML = `
+      <div style="font-size: 48px; margin-bottom: 20px;">📱</div>
+      <div style="margin-bottom: 10px;">Vui lòng xoay điện thoại</div>
+      <div style="font-size: 18px; opacity: 0.8;">để có trải nghiệm tốt nhất</div>
+      <div style="font-size: 32px; margin-top: 20px; animation: rotate 2s infinite linear;">⟳</div>
+    `;
+    
+    // Add rotation animation
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+    
+    document.body.appendChild(rotationOverlay);
+    return rotationOverlay;
+  }
+  
+  function handleRotationOverlay(isMobile: boolean, isLandscape: boolean) {
+    if (isMobile && !isLandscape) {
+      // Show rotation overlay for mobile portrait
+      if (!rotationOverlay) {
+        createRotationOverlay();
+      }
+      if (rotationOverlay) {
+        rotationOverlay.style.display = 'flex';
+      }
+      // Pause game when showing overlay
+      if (app && app.ticker) {
+        app.ticker.speed = 0;
+      }
+    } else {
+      // Hide rotation overlay
+      if (rotationOverlay) {
+        rotationOverlay.style.display = 'none';
+      }
+      // Resume game
+      if (app && app.ticker) {
+        app.ticker.speed = 1;
+      }
+    }
   }
   applyCanvasCssSize();
   try { updateHudScale(); } catch (e) {}
@@ -985,6 +1058,18 @@ async function init() {
             try { 
               player.sprite.x = player.worldX;
               player.sprite.y = player.y; 
+            } catch (e) {}
+            
+            // FIX: Update camera position to match player's new position
+            try {
+              const TARGET_SCREEN_X = Math.round(WIDTH / 3);
+              const desiredScroll = targetWorldX - TARGET_SCREEN_X;
+              world.x = -desiredScroll;
+              world.y = -100; // Maintain camera Y offset
+              if (handler) {
+                try { handler.scroll = desiredScroll; } catch (e) {}
+                try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+              }
             } catch (e) {}
 
           } else {
@@ -2025,7 +2110,8 @@ async function init() {
   });
 
   function updateScale() {
-    // Reset scale of the internal world: CSS handles visual scaling now.
+    // FIXED: Keep root scale at 1,1 - CSS handles all scaling
+    // This prevents double-scaling issues
     try {
       root.scale.set(1, 1);
       root.position.set(0, 0);
@@ -2034,7 +2120,7 @@ async function init() {
     // Update HUD layout if needed
     try { layoutHud(); } catch (e) {}
 
-    // Use the same scale calculation logic from applyCanvasCssSize()
+    // Calculate scale for reference (used by HUD and other systems)
     const winW = window.innerWidth || WIDTH;
     const winH = window.innerHeight || HEIGHT;
     const scaleX = winW / WIDTH;
@@ -2050,20 +2136,18 @@ async function init() {
     
     let s: number;
     
+    // Match the logic from applyCanvasCssSize()
     if (isMobile) {
       if (isLandscape) {
-        // Mobile landscape: prioritize filling width, allow some crop on height
-        const fillScale = Math.max(scaleX, scaleY * 0.95);
-        s = Math.min(fillScale, Math.max(scaleX, scaleY * 0.85));
+        // Mobile landscape: OPTIMAL - fill screen maximally
+        s = Math.max(scaleX, scaleY * 0.9);
+        s = Math.min(s, 1.5); // Allow up to 1.5x for better mobile experience
       } else {
-        // Mobile portrait: use standard letterbox
-        s = Math.min(scaleX, scaleY);
+        // Mobile portrait: minimal scale, encourage rotation
+        s = Math.min(scaleX, scaleY) * 0.6; // Smaller scale to encourage landscape
       }
-      
-      // For mobile, allow up to 1.2x scale to better fill screen
-      s = Math.min(s, 1.2);
     } else {
-      // Desktop logic: letterbox with optional upscale
+      // Desktop logic: standard letterbox
       const rawScale = Math.min(scaleX, scaleY);
       const allowUpscale = (winW >= 1280 && aspectRatio >= 1.5);
       const maxScale = allowUpscale ? 1.8 : 1.2;
@@ -2074,7 +2158,7 @@ async function init() {
     s = Math.max(s, 0.3);
     
     currentScale = s;
-    try { window.dispatchEvent(new CustomEvent('screen-scale', { detail: { scale: currentScale } })); } catch (e) {}
+    // Note: We don't dispatch screen-scale event here to avoid double scaling
   }
 
   updateScale();
@@ -2093,14 +2177,15 @@ async function init() {
     updateScale();
   }
 
-  // Listen for external `screen-scale` events so we can propagate the
-  // new scale to containers that need to adjust their internal rendering.
+  // DISABLED: Listen for external `screen-scale` events - this was causing double scaling
+  // CSS scaling handles everything, no need for root.scale manipulation
+  /*
   try {
     window.addEventListener('screen-scale', (ev: any) => {
       try {
         const s = ev && ev.detail && typeof ev.detail.scale === 'number' ? ev.detail.scale : currentScale;
         currentScale = s;
-        try { root.scale.set(s, s); } catch (e) {}
+        // REMOVED: root.scale.set(s, s) to prevent double scaling
 
         // Give known actors a chance to react: any child that exposes
         // `setScreenScale(scale)`. We intentionally do NOT call this on the
@@ -2120,6 +2205,7 @@ async function init() {
       } catch (e) {}
     });
   } catch (e) {}
+  */
 
   window.addEventListener('fullscreenchange', () => {
     try { onResize(); } catch (e) {}
