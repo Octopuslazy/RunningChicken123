@@ -9,25 +9,15 @@ export interface PatternData {
   nextStartOffset: number;
   difficulty: 'EASY' | 'MEDIUM' | 'HARD';
   container: Container;
-  // optional pits (local coordinates relative to pattern start)
-  pits?: { x: number; width: number }[];
-  // optional obstacles described in local coordinates. MapHandler will
-  // convert these to world coordinates and create invisible hitboxes.
-  obstacles?: { x: number; width: number; height: number; y?: number; isGround?: boolean; isPlane?: boolean; planeId?: number; layer?: string }[];
-  // When true the pattern does not create a continuous ground collider
-  // across its visual width (useful for floating-platform patterns).
+  // optional runtime hints used by MapHandler
   noGround?: boolean;
-  // optional preferred player Y offset (local to container). If provided
-  // MapHandler will use `container.y + playerYOffset` as the standing
-  // surface for the player when on this pattern.
   playerYOffset?: number;
+  pits?: { x: number; width: number }[];
+  obstacles?: Array<{ x: number; width: number; height?: number; y?: number; isPlane?: boolean; isGround?: boolean; debugColor?: number; debugAlpha?: number; layer?: string; planeId?: string | number; isPlatform?: boolean }>;
 }
 
 export type PatternFactory = (startX: number) => PatternData;
 
-// MapHandler manages a sequence of Patterns and provides compatibility helpers
-// (pits/obstacles) so existing code can keep working while we migrate to
-// Pattern-based world composition.
 export class MapHandler {
   private world: Container;
   private WIDTH: number;
@@ -129,22 +119,31 @@ export class MapHandler {
       if (!p.noGround) {
         try {
           const groundThickness = this.groundThickness || 8;
-          const gcol = new Graphics();
-          gcol.clear();
-          try {
-            if (typeof (gcol as any).fill === 'function') {
-              try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { /* some builds accept object signature */ try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
-            } else {
-              (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
-            }
-          } catch (e) {}
-          try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
-          try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
-          gcol.x = visualStart;
-          // position collider so its bottom aligns with the visual top of ground
-          gcol.y = worldGroundTop - groundThickness;
-          gcol.visible = this.hitboxDebug;
-          this.obstaclesContainer.addChild(gcol);
+          // Create a visible Graphics collider only when debugging hitboxes.
+          // Otherwise store a lightweight collider object to avoid draw calls
+          // and allocations that cause GC/render cost on mobile.
+          let gcol: any = null;
+          const colliderY = worldGroundTop - groundThickness;
+          if (this.hitboxDebug) {
+            gcol = new Graphics();
+            gcol.clear();
+            try {
+              if (typeof (gcol as any).fill === 'function') {
+                try { (gcol as any).fill(0x00ff00, this.hitboxDebug ? 0.25 : 0); } catch (e) { try { (gcol as any).fill({ color: 0x00ff00, alpha: this.hitboxDebug ? 0.25 : 0 }); } catch (e) {} }
+              } else {
+                (gcol as any).beginFill && (gcol as any).beginFill(0x00ff00, this.hitboxDebug ? 0.25 : 0);
+              }
+            } catch (e) {}
+            try { (gcol as any).rect ? (gcol as any).rect(0, 0, visualLength, groundThickness) : (gcol as any).drawRect && (gcol as any).drawRect(0, 0, visualLength, groundThickness); } catch (e) {}
+            try { (gcol as any).endFill && (gcol as any).endFill(); } catch (e) {}
+            gcol.x = visualStart;
+            gcol.y = colliderY;
+            gcol.visible = true;
+            try { this.obstaclesContainer.addChild(gcol); } catch (e) {}
+          } else {
+            // lightweight collider object used for collision math only
+            gcol = { y: colliderY };
+          }
           this.obstacles.push({ x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any);
         } catch (e) {
           // ignore collider creation errors

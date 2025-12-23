@@ -169,7 +169,7 @@ export interface Player {
   maxJumps?: number;
 }
 
-export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, frames, jumpSpeed = 2000, gravity = 3000, screenScale = 1 }:
+export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, frames, jumpSpeed = 1400, gravity = 10000, screenScale = 1 }:
   { PLAYER_X: number; playerRadius: number; groundY: number; texture?: Texture; frames?: Texture[]; jumpSpeed?: number; gravity?: number; screenScale?: number; }): Player {
   let sprite: Sprite | Graphics;
   if (frames && frames.length) {
