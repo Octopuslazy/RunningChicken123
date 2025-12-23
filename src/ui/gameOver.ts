@@ -170,11 +170,10 @@ export function showGameOver(params: ShowGameOverParams) {
       try { overlayContainer && overlayContainer.addChild(btnText); } catch (e) { try { root.addChild(btnText); } catch (e) { try { app.stage.addChild(btnText); } catch (e) {} } }
 
       const cleanupAndReset = () => {
-        // First, restore renderer/canvas to original size so gameplay isn't affected
-        try {
-          try { app.renderer.resize(originalWidth, originalHeight); } catch (e) {}
-          try { app.canvas.style.width = `${originalCanvasWidth}px`; app.canvas.style.height = `${originalCanvasHeight}px`; } catch (e) {}
-        } catch (e) {}
+        // Restore renderer internal resolution only; do NOT set CSS width/height
+        // because that is the cause of mobile scale/zoom issues. CSS sizing is
+        // managed by `applyCanvasCssSize()` in `main.ts`.
+        try { app.renderer.resize(originalWidth, originalHeight); } catch (e) {}
 
         try { if (_btnPulseTicker) { try { app.ticker.remove(_btnPulseTicker); } catch (e) {} _btnPulseTicker = null; } } catch (e) {}
         try { if (overlayContainer && overlayContainer.parent) overlayContainer.parent.removeChild(overlayContainer); } catch (e) { try { if (overlayContainer && root && overlayContainer.parent) root.removeChild(overlayContainer); } catch (e) {} }
@@ -262,14 +261,12 @@ export function showGameOver(params: ShowGameOverParams) {
     } catch (e) {}
   } catch (e) {}
 
-  return {
+    return {
     cleanup: () => {
-      // Restore original renderer state
-      try {
-        app.renderer.resize(originalWidth, originalHeight);
-        app.canvas.style.width = `${originalCanvasWidth}px`;
-        app.canvas.style.height = `${originalCanvasHeight}px`;
-      } catch (e) {}
+      // Restore original renderer internal resolution only; do NOT touch
+      // the canvas CSS width/height which should remain controlled by
+      // the main resize logic to avoid mobile scale jumps.
+      try { app.renderer.resize(originalWidth, originalHeight); } catch (e) {}
       
       // Remove overlay elements
       try { if (overlayContainer && overlayContainer.parent) overlayContainer.parent.removeChild(overlayContainer); } catch (e) {}
