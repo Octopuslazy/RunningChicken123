@@ -236,7 +236,7 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
 
   const player: Player = {
     sprite,
-    worldX: 0,
+    worldX: PLAYER_X, // FIXED: Initialize worldX to match sprite position
     y: sprite.y,
     vy: 0,
     onGround: true,

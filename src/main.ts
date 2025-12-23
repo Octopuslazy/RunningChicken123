@@ -451,7 +451,8 @@ async function init() {
     }
   } catch (e) { cloudSmallLayer = null; }
 
-  const groundY = HEIGHT + 1200;
+  // FIXED: Use proper groundY position near bottom of screen
+  const groundY = HEIGHT - 120; // Standard ground position
 
   const style = new TextStyle({
     fill: '#ffffff',
@@ -521,7 +522,7 @@ async function init() {
   });
 
   player.worldX = PLAYER_X;
-  player.y = groundY - 90 ;
+  player.y = groundY - playerRadius; // FIXED: Use standard ground position
   
   // Đảm bảo sprite visible và có alpha
   player.sprite.visible = true;
@@ -900,7 +901,7 @@ async function init() {
       // Khởi tạo gameplay trước
       try {
         // Enable pattern hitbox debug so plane colliders are visible for troubleshooting
-        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: -1000, patternGroundThickness: 160, patternObstaclePadding: 24, patternHitboxDebug: true });
+        gameplay = createGameplay({ world, bg, label, WIDTH, HEIGHT, groundY, initialSpeed: 200, speedAccel: 8, patternYOffset: 0, patternGroundThickness: 160, patternObstaclePadding: 24, patternHitboxDebug: true });
         try { (gameplay as any)._handler.allowRandomObstacles = false; } catch (e) {}
       } catch (e) {}
 
@@ -1068,7 +1069,8 @@ async function init() {
               world.y = -100; // Maintain camera Y offset
               if (handler) {
                 try { handler.scroll = desiredScroll; } catch (e) {}
-                try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+                // DISABLED: Don't set handler.world.x - it conflicts with main world.x
+                // try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
               }
             } catch (e) {}
 
@@ -1292,7 +1294,8 @@ async function init() {
         const handler = (gameplay as any)?._handler;
         if (handler) {
           try { handler.scroll = desiredScroll; } catch (e) {}
-          try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+          // DISABLED: Don't set handler.world.x - it conflicts with main world.x
+          // try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
         }
       } catch (e) {}
     } catch (e) {}
@@ -1738,8 +1741,13 @@ async function init() {
   let gameOverQueuedReason: string | null = null;
   let collisionEffectPlaying = false;
   let gameStartTime = 0; // Track when game started to prevent immediate game over
+  
+  // Flag to preserve scale during restart
+  let isRestarting = false;
 
   async function restartGame() {
+    isRestarting = true; // Prevent scale changes during restart
+    
     try { SoundController.stopAll(); } catch (e) {}
     
     
@@ -1835,6 +1843,8 @@ async function init() {
     // Bật lại controls sau khi startGame hoàn thành
     controlsEnabled = true;
     (window as any).__controlsEnabled = true;
+    
+    isRestarting = false; // Re-enable scale changes
   }
 
   let controlsEnabled = false;
@@ -1969,7 +1979,8 @@ async function init() {
               world.y = -100; // Maintain camera Y offset
               if (handler) {
                 try { handler.scroll = desiredScroll; } catch (e) {}
-                try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
+                // DISABLED: Don't set handler.world.x - it conflicts with main world.x
+                // try { if (handler.world) handler.world.x = -desiredScroll; } catch (e) {}
               }
             } catch (e) {}
           } catch (e) {}
@@ -2173,6 +2184,9 @@ async function init() {
   try { controlsEnabled = true; (window as any).__controlsEnabled = true; gameStartTime = Date.now(); } catch (e) {}
 
   function onResize() {
+    // Skip resize during restart to preserve scale
+    if (isRestarting) return;
+    
     applyCanvasCssSize();
     updateScale();
   }
@@ -2234,6 +2248,9 @@ async function init() {
   let orientationTimer: number | null = null;
   
   function handleOrientationChange() {
+    // Skip orientation change during restart
+    if (isRestarting) return;
+    
     // Clear existing timer
     if (orientationTimer) {
       clearTimeout(orientationTimer);

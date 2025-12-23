@@ -279,7 +279,8 @@ export class MapHandler {
   update(deltaSec: number, speedAccel = 8) {
     this.speed += speedAccel * deltaSec;
     this.scroll += this.speed * deltaSec;
-    this.world.x = -this.scroll;
+    // DISABLED: Let main camera loop handle world.x positioning
+    // this.world.x = -this.scroll;
 
     // subtle background hue change to keep previous visual behaviour
     const hue = (this.scroll * 0.02) % 360;
