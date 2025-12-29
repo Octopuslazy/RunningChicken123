@@ -802,7 +802,7 @@ async function init() {
   const scoreText = new Text({ text: 'Score: 0', style: scoreStyle });
   // score: place inside the game container so it scales with world
   hudGameLayer.addChild(scoreText);
-  hudItems.push({ obj: scoreText, anchor: 'topright', offsetX: 20, y: -50, layer: 'game' });
+  hudItems.push({ obj: scoreText, anchor: 'topright', offsetX: 20, y: -30, layer: 'game' });
 
   let _lastHitSoundAt = 0;
   function tryPlayHitSound() {
