@@ -1,144 +1,107 @@
 import { Graphics, Sprite, Texture } from 'pixi.js';
+import { ParticleManager } from './partical/ParticleManager';
 
-// Lightweight particle "emitter" used for double-jump visual effect.
-// Inlined emitter (2).json config
+// Optimized particle config for double-jump effect
 const DEFAULT_EMITTER_CONFIG = {
   alpha: { start: 1, end: 0.65 },
-  scale: { start: 0.5, end: 0.1, minimumScaleMultiplier: 1 },
-  color: { start: '#e4f9ff', end: '#3fcbff' },
-  speed: { start: 10, end: 5, minimumSpeedMultiplier: 1 },
-  acceleration: { x: 0, y: 0 },
-  maxSpeed: 0,
-  startRotation: { min: 0, max: 0 },
-  noRotation: false,
-  rotationSpeed: { min: 0, max: 0 },
-  lifetime: { min: 0.2, max: 0.8 },
-  blendMode: 'normal',
-  frequency: 0.2,
-  emitterLifetime: 1,
-  maxParticles: 5,
-  pos: { x: 0, y: 0 },
-  addAtBack: false,
-  spawnType: 'point'
+  scale: { start: 1.0, end: 0.2 }, // Increased for visibility
+  lifetime: { min: 400, max: 800 }, // ms
+  speed: { start: 100, end: 50 },
+  maxParticles: 8,
+  frequency: 100 // ms between spawns
 };
 
-// `pos` may be either `{x:number,y:number}` or a function returning that object.
+// Optimized particle emitter using ParticleManager for better performance
 function spawnDoubleJumpEmitter(parent: any, pos: any, yArg?: number, durationMs = 1000) {
   try {
     const FLAG = '__doubleJumpEmitterActive';
     if (parent && (parent as any)[FLAG]) return;
-    if (parent) try { (parent as any)[FLAG] = true; } catch (e) {}
+    if (parent) (parent as any)[FLAG] = true;
 
     const cfg = DEFAULT_EMITTER_CONFIG;
-    const tex = Texture.from('/Assets/_arts/effect_double jump.png');
-    const container = parent || null;
-
-    // make effect run 2x faster: halve interval (double spawn rate)
-    const freqMs = (typeof cfg.frequency === 'number' ? cfg.frequency * 1000 : 100) / 2;
-    const maxParticles = typeof cfg.maxParticles === 'number' ? Math.max(1, Math.floor(cfg.maxParticles)) : 10;
-    // halve particle lifetime to speed up animation
-    const lifetimeMin = cfg.lifetime && typeof cfg.lifetime.min === 'number' ? (cfg.lifetime.min * 1000) / 2 : 200;
-    const lifetimeMax = cfg.lifetime && typeof cfg.lifetime.max === 'number' ? (cfg.lifetime.max * 1000) / 2 : 800;
-    const alphaStart = cfg.alpha && typeof cfg.alpha.start === 'number' ? cfg.alpha.start : 1;
-    const alphaEnd = cfg.alpha && typeof cfg.alpha.end === 'number' ? cfg.alpha.end : 0.6;
-    // scale effect up 2x
-    const scaleStart = (cfg.scale && typeof cfg.scale.start === 'number' ? cfg.scale.start : 0.5) * 2;
-    const scaleEnd = (cfg.scale && typeof cfg.scale.end === 'number' ? cfg.scale.end : 0.1) * 2;
-    const rotMin = cfg.startRotation && typeof cfg.startRotation.min === 'number' ? cfg.startRotation.min : 0;
-    const rotMax = cfg.startRotation && typeof cfg.startRotation.max === 'number' ? cfg.startRotation.max : 360;
-    // double particle speed for faster motion
-    const speedStart = (cfg.speed && typeof cfg.speed.start === 'number' ? cfg.speed.start : 50) * 2;
-
-    let activeCount = 0;
-    const endAt = (performance && performance.now) ? performance.now() + durationMs : Date.now() + durationMs;
-
-    let iv: any = null;
+    const particleManager = ParticleManager.getInstance();
+    
+    let spawnCount = 0;
+    const maxParticles = cfg.maxParticles;
+    const endAt = performance.now() + durationMs;
+    
     const cleanup = () => {
-      try { if (iv) clearInterval(iv); } catch (e) {}
-      try { if (parent) (parent as any)[FLAG] = false; } catch (e) {}
-      try { if (parent) delete (parent as any)['__doubleJumpEmitterStop']; } catch (e) {}
+      if (parent) {
+        (parent as any)[FLAG] = false;
+        delete (parent as any)['__doubleJumpEmitterStop'];
+      }
     };
-
-    // expose a stop hook on the parent so callers can cancel the emitter early
-    try { if (parent) (parent as any)['__doubleJumpEmitterStop'] = cleanup; } catch (e) {}
-
-    iv = setInterval(() => {
-      const now = (performance && performance.now) ? performance.now() : Date.now();
-      if (now >= endAt) { clearInterval(iv); return; }
-
-      // spawn a few particles but don't exceed maxParticles
-      const spawnCount = Math.min(3, Math.max(1, maxParticles - activeCount));
-      // determine current emitter origin (supports function getter)
-      let originX = 0;
-      let originY = 0;
+    
+    // Expose stop hook
+    if (parent) (parent as any)['__doubleJumpEmitterStop'] = cleanup;
+    
+    const spawnParticles = () => {
+      const now = performance.now();
+      if (now >= endAt || spawnCount >= maxParticles) {
+        cleanup();
+        return;
+      }
+      
+      // Get position (supports function getter)
+      let originX = 0, originY = 0;
       if (typeof pos === 'function') {
-        try { const o = pos(); if (o) { originX = o.x; originY = o.y; } } catch (e) {}
-      } else if (pos && typeof pos === 'object') {
-        originX = pos.x !== undefined ? pos.x : 0;
-        originY = pos.y !== undefined ? pos.y : (yArg !== undefined ? yArg : 0);
-      } else {
-        originX = (typeof pos === 'number' ? pos : 0);
-        originY = (typeof yArg === 'number' ? yArg : 0);
-      }
-
-      for (let i = 0; i < spawnCount; i++) {
         try {
-          const p = new Sprite(tex as any);
-          p.anchor && p.anchor.set ? p.anchor.set(0.5, 0.5) : null;
-
-          // position around current origin with slight offset so it follows player
-          const ox = (Math.random() - 0.5) * 10;
-          const oy = (Math.random() - 0.5) * 10;
-          p.x = originX + ox;
-          p.y = originY + oy;
-
-          const s = scaleStart + Math.random() * (Math.max(0, scaleEnd - scaleStart));
-          try { p.scale.set(s, s); } catch (e) {}
-          p.alpha = alphaStart;
-          try { if (container && typeof container.addChild === 'function') container.addChild(p); }
-          catch (e) { try { (parent as any).addChild(p); } catch (e) {} }
-
-          activeCount++;
-          const life = lifetimeMin + Math.random() * (lifetimeMax - lifetimeMin);
-          const startTime = (performance && performance.now) ? performance.now() : Date.now();
-
-          // compute velocity from random start rotation & speed
-          const angDeg = rotMin + Math.random() * (rotMax - rotMin);
-          const ang = angDeg * (Math.PI / 180);
-          const spd = speedStart;
-          const vx = Math.cos(ang) * spd;
-          const vy = Math.sin(ang) * spd;
-
-          let last = startTime;
-          function step(nowTime: number) {
-            try {
-              const t = Math.min(1, (nowTime - startTime) / life);
-              const dt = (nowTime - last) / 1000;
-              last = nowTime;
-              try { p.x += vx * dt; p.y += vy * dt; } catch (e) {}
-              try { p.alpha = alphaStart + (alphaEnd - alphaStart) * t; } catch (e) {}
-              try {
-                const sc = scaleStart + (scaleEnd - scaleStart) * t;
-                p.scale.set(sc, sc);
-              } catch (e) {}
-              if (t < 1) requestAnimationFrame(step);
-              else { try { p.parent && p.parent.removeChild(p); } catch (e) {} ; activeCount--; }
-            } catch (e) { try { p.parent && p.parent.removeChild(p); } catch (e) {} ; activeCount--; }
-          }
-          requestAnimationFrame(step);
+          const o = pos();
+          if (o) { originX = o.x; originY = o.y; }
         } catch (e) {}
+      } else if (pos && typeof pos === 'object') {
+        originX = pos.x ?? 0;
+        originY = pos.y ?? (yArg ?? 0);
+      } else {
+        originX = typeof pos === 'number' ? pos : 0;
+        originY = typeof yArg === 'number' ? yArg : 0;
       }
-    }, Math.max(16, Math.floor(freqMs)));
-
-      // ensure flag cleared after duration
-    try {
-      setTimeout(() => {
-        try { cleanup(); } catch (e) {}
-      }, durationMs + 50);
-    } catch (e) {}
+      
+      // Spawn 2-3 particles per call
+      const batchSize = Math.min(3, maxParticles - spawnCount);
+      for (let i = 0; i < batchSize; i++) {
+        // Random offset around origin
+        const ox = (Math.random() - 0.5) * 20;
+        const oy = (Math.random() - 0.5) * 20;
+        
+        // Random velocity (360 degree spread)
+        const angle = Math.random() * Math.PI * 2;
+        const speed = cfg.speed.start + Math.random() * (cfg.speed.end - cfg.speed.start);
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed;
+        
+        // Random lifetime
+        const lifetime = cfg.lifetime.min + Math.random() * (cfg.lifetime.max - cfg.lifetime.min);
+        
+        particleManager.spawnParticle(parent, originX + ox, originY + oy, {
+          vx,
+          vy,
+          lifetime,
+          alphaStart: cfg.alpha.start,
+          alphaEnd: cfg.alpha.end,
+          scaleStart: cfg.scale.start,
+          scaleEnd: cfg.scale.end
+        });
+        
+        spawnCount++;
+      }
+      
+      // Schedule next spawn if not done
+      if (spawnCount < maxParticles && now < endAt) {
+        setTimeout(spawnParticles, cfg.frequency);
+      } else {
+        cleanup();
+      }
+    };
+    
+    // Start spawning
+    spawnParticles();
+    
   } catch (e) {
-    try { if (parent) (parent as any)["__doubleJumpEmitterActive"] = false; } catch (ee) {}
-    try { if (parent) delete (parent as any)['__doubleJumpEmitterStop']; } catch (ee) {}
+    if (parent) {
+      (parent as any)["__doubleJumpEmitterActive"] = false;
+      delete (parent as any)['__doubleJumpEmitterStop'];
+    }
   }
 }
 

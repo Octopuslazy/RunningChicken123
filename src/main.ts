@@ -1,6 +1,7 @@
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
+import { ParticleManager } from './partical/ParticleManager';
 import { createGameplay } from './gameplay';
 import { loadTexture, loadGameAssets } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
@@ -363,9 +364,13 @@ async function init() {
   const world = new Container();
   gameLayer.addChild(world);
 
-  const bg = new Graphics().rect(0, 0, WIDTH, HEIGHT).fill({ color: 0x66ccff });
-  // Keep the background outside the scaled game layer so it does NOT scale.
-  try { root.addChildAt(bg, 0); } catch (e) { try { root.addChild(bg); } catch (e) {} }
+  // Create a much wider background that moves with the world/camera
+  const bgWidth = WIDTH * 8; // Make background 8x wider for camera scrolling
+  const bgHeight = HEIGHT * 2; // Make background taller
+  const bg = new Graphics().rect(-bgWidth/2, -bgHeight/4, bgWidth, bgHeight).fill({ color: 0x66ccff });
+  // Put background IN the world so it moves with camera
+  bg.scale.set(1.1, 1.1); // Scale background by 10%
+  try { world.addChildAt(bg, 0); } catch (e) { try { world.addChild(bg); } catch (e) {} }
 
   // Parallax city background
   let cityLayer: { container: import('pixi.js').Container; update: (scroll: number) => void; tileWidth: number; } | null = null;
@@ -376,7 +381,7 @@ async function init() {
       const container = new Container();
       root.addChildAt(container, 0);
       const tileW = cityTex.width || WIDTH;
-      const bgScale = 4;
+      const bgScale = 4 * 1.1; // Scale city background by 10%
       const desiredY = HEIGHT - (cityTex.height || 200) - 800;
       container.y = desiredY;
       container.scale.set(bgScale, bgScale);
@@ -406,6 +411,7 @@ async function init() {
     const bigTex = await loadTexture('/Assets/_arts/bg_4_cloudbig.png');
     if (bigTex) {
       const c = new Container();
+      c.scale.set(1.1, 1.1); // Scale big clouds by 10%
       try { root.addChildAt(c, 1); } catch (e) { root.addChild(c); }
       const tileW = bigTex.width || WIDTH;
       const gapFraction = 0.25;
@@ -434,6 +440,7 @@ async function init() {
     const smallTex = await loadTexture('/Assets/_arts/bg_4_cloudsmall.png');
     if (smallTex) {
       const c = new Container();
+      c.scale.set(1.1, 1.1); // Scale small clouds by 10%
       try { root.addChildAt(c, 2); } catch (e) { root.addChild(c); }
       const tileW = smallTex.width || WIDTH;
       const gapFractionS = 0.18;
@@ -920,7 +927,7 @@ async function init() {
         const handler = (gameplay as any)._handler;
 
         const patterns: any[] = [];
-        const NUM_PATTERNS = 10; // Reduced from 200 for pooling system
+        const NUM_PATTERNS = 7; // Reduced from 200 for pooling system
         const PIT_WIDTH = 300;
 
         const PATTERN_LENGTH = 750;
@@ -1136,7 +1143,9 @@ async function init() {
     debugFrameCount++;
     if (debugFrameCount >= 60) {
       debugFrameCount = 0;
-      console.log(`[CAMERA] Live - world.x: ${world.x}, world.y: ${world.y}, player.worldX: ${player?.worldX}, player.y: ${player?.y}`);
+      // Add particle system stats to debug output
+      const particleStats = ParticleManager.getInstance().getStats();
+      
     }
     
     // CRITICAL: Update Spine animation in render loop
@@ -1151,6 +1160,13 @@ async function init() {
       }
     } catch (e) {
       // Silent fail to avoid spam
+    }
+    
+    // Update particle system (replaces individual RAF calls for better performance)
+    try {
+      ParticleManager.getInstance().update(deltaSec);
+    } catch (e) {
+      // Silent fail
     }    
     
     // Stop gameplay and player movement when game over
@@ -1925,6 +1941,11 @@ async function init() {
     (window as any).__controlsEnabled = false; // Global flag for character input
     gameOver = true;
     playerDead = true;
+    
+    // Clear particle system to prevent lingering effects
+    try {
+      ParticleManager.getInstance().clear();
+    } catch (e) {}
 
     // Play death animation immediately
     try { 
@@ -1936,6 +1957,11 @@ async function init() {
       try { console.log('calling showGameOver overlay'); } catch (e) {}
       showGameOver({ app, root, canvas, onPlayAgain: () => { try { restartGame(); } catch (e) { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } }, onRespawn: () => {
         try {
+          // Stop all sounds including game over audio
+          try { SoundController.stopAll(); } catch (e) {}
+          // Restart background music
+          try { SoundController.playBackgroundForced(300); } catch (e) { try { SoundController.playBackground(); } catch (e) {} }
+          
           // Attempt a lightweight respawn at the current visible pattern.
           try { gameOver = false; } catch (e) {}
           try { playerDead = false; controlsEnabled = true; (window as any).__controlsEnabled = true; } catch (e) {}
