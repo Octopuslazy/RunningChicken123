@@ -846,8 +846,8 @@ async function init() {
     try { await loadTexture('/Assets/_arts/obj_6.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/obs_1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/obs_2.png'); } catch (e) {}
-    // try { await loadTexture('/Assets/_arts/obs_3.png'); } catch (e) {} // Removed - causing CORS error
-    // try { await loadTexture('/Assets/_arts/score.png'); } catch (e) {} // Removed - causing CORS error
+    try { await loadTexture('/Assets/_arts/obs_3.png'); } catch (e) {}
+    try { await loadTexture('/Assets/_arts/score.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_standee1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/gameover.jpg'); } catch (e) {}
     // try { await loadTexture('/Assets/Arts/anim/kfc_chicken.png'); } catch (e) {}

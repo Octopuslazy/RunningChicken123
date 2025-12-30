@@ -1,4 +1,4 @@
-import { Container, Graphics, Text, Rectangle } from 'pixi.js';
+import { Container, Graphics, Text, Rectangle, Texture, Sprite } from 'pixi.js';
 
 // PatternData describes a single pattern (segment) in the world. Each pattern
 // provides its length (in world pixels), the offset to the next pattern's
@@ -40,6 +40,36 @@ export class MapHandler {
   private obstaclePadding = 0;
   // allow toggling random obstacle spawning (useful for debugging/testing)
   public allowRandomObstacles = true;
+  
+  // Object Pooling for Obstacles
+  private obstaclePool: Sprite[] = [];
+
+  // Hàm lấy Obstacle từ Pool
+  private getPooledObstacle(): Sprite {
+    if (this.obstaclePool.length > 0) {
+      const s = this.obstaclePool.pop()!;
+      s.visible = true;
+      s.alpha = 1;
+      return s;
+    }
+    // Nếu pool cạn, tạo mới Sprite (Dùng Texture trắng 1px để thay thế Graphics)
+    const s = Sprite.from(Texture.WHITE);
+    s.anchor.set(0, 0);
+    return s;
+  }
+
+  // Hàm trả Obstacle về Pool
+  private returnObstacleToPool(obstacleData: any) {
+    if (obstacleData.sprite && obstacleData.sprite.parent) {
+       obstacleData.sprite.parent.removeChild(obstacleData.sprite);
+       // Reset các thuộc tính quan trọng
+       obstacleData.sprite.visible = false;
+       obstacleData.sprite.scale.set(1, 1);
+       obstacleData.sprite.rotation = 0;
+       obstacleData.sprite.tint = 0xFFFFFF; // Reset tint
+       this.obstaclePool.push(obstacleData.sprite);
+    }
+  }
 
   constructor(options: { world: Container; bg: Graphics; label: Text; WIDTH: number; HEIGHT: number; groundY?: number; initialSpeed?: number; patternYOffset?: number; patternGroundThickness?: number; patternObstaclePadding?: number; }) {
     this.world = options.world;
@@ -234,32 +264,45 @@ export class MapHandler {
       this.pits.push({ x: px, width: PIT_WIDTH });
     }
 
-    // obstacles (legacy)
+    // obstacles (legacy) - SỬA DÙNG OBJECT POOLING
     const OB_MIN_INTERVAL = 600;
     const OB_MAX_INTERVAL = 1400;
     const OB_SPAWN_AHEAD = this.WIDTH * 0.9;
     if (this.allowRandomObstacles && Math.random() < 0.01) {
       const px = this.scroll + OB_SPAWN_AHEAD + Math.random() * 120;
       const size = 80 + Math.floor(Math.random() * 80);
-      const g = new Graphics();
-      g.rect(0, 0, size, size).fill({ color: 0x996633 });
-      g.x = px;
+      
+      // Thay vì new Graphics(), dùng Pool
+      const s = this.getPooledObstacle();
+      s.width = size;
+      s.height = size;
+      s.tint = 0x996633; // Màu nâu giống cũ
+      s.x = px;
       const groundTop = this.HEIGHT - 120;
-      g.y = groundTop - size;
-      g.interactive = true;
-      g.hitArea = new Rectangle(0, 0, size, size) as any;
-      const ob = { x: px, width: size, height: size, sprite: g } as any;
-      g.on('pointerdown', () => {
-        try { this.obstaclesContainer.removeChild(g); const idx = this.obstacles.indexOf(ob); if (idx >= 0) this.obstacles.splice(idx, 1); } catch (e) {}
+      s.y = groundTop - size;
+      
+      // Xử lý sự kiện
+      s.eventMode = 'static'; // Pixi v8 dùng eventMode thay vì interactive
+      s.removeAllListeners(); // Clear old listeners
+      
+      const ob = { x: px, width: size, height: size, sprite: s } as any;
+      s.on('pointerdown', () => {
+        try { 
+          this.returnObstacleToPool(ob);
+          const idx = this.obstacles.indexOf(ob); 
+          if (idx >= 0) this.obstacles.splice(idx, 1); 
+        } catch (e) {}
       });
-      this.obstaclesContainer.addChild(g);
+      
+      this.obstaclesContainer.addChild(s);
       this.obstacles.push(ob);
     }
 
-    // cleanup obstacles behind camera (keep them further back to avoid
-    // premature deletion when the camera/player is pushed back)
+    // cleanup obstacles behind camera - SỬA DÙNG OBJECT POOLING
     while (this.obstacles.length && (this.obstacles[0].x + this.obstacles[0].width) < (this.scroll - 5000)) {
-      try { this.obstaclesContainer.removeChild(this.obstacles[0].sprite); } catch (e) {}
+      const obToRemove = this.obstacles[0];
+      // Gọi hàm trả về pool thay vì chỉ removeChild
+      this.returnObstacleToPool(obToRemove);
       this.obstacles.shift();
     }
     

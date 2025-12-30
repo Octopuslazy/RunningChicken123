@@ -4,8 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "playable-scripts start", 
-    "build": "playable-scripts build",
-    "vercel-build": "webpack --mode production"
+    "build": "playable-scripts build"
   },
   "playable": {
     "entry": "src/index.ts",
