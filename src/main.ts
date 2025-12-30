@@ -794,7 +794,7 @@ async function init() {
   let score = 0;
   let prevScore = 0;
   let lastDistanceThreshold = 0;
-  const REWARD_URL = 'https://leapstud.io/';
+  const REWARD_URL = 'https://play.google.com/store/apps/details?id=co.leap.games.CozySeat&pcampaignid=web_share';
   const REWARD_THRESHOLD = 1500;
   let rewardShown = false;
   let rewardActive = false;
@@ -1708,7 +1708,7 @@ async function init() {
           (btnG as any).buttonMode = true;
           overlay.addChild(btnG);
 
-          const btnText = new Text({ text: 'Get Reward', style: btnStyle });
+          const btnText = new Text({ text: 'Get on Google Play', style: btnStyle });
           btnText.x = btnX + Math.round((btnW2 - btnText.width) / 2);
           btnText.y = btnY + Math.round((btnH2 - btnText.height) / 2);
           overlay.addChild(btnText);
