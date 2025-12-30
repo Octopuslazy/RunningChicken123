@@ -278,7 +278,7 @@ async function init() {
     (window as any).__gameScale = scale;
     (window as any).__isMobile = isMobile;
     (window as any).__isLandscape = isLandscape;
-    console.log(`[SCALE] CSS Scale: ${scale}, Canvas: ${cssW}x${cssH}, Window: ${winW}x${winH}, Mobile: ${isMobile}, Landscape: ${isLandscape}`);
+    
   }
   
   // Rotation overlay system
@@ -330,28 +330,8 @@ async function init() {
   }
   
   function handleRotationOverlay(isMobile: boolean, isLandscape: boolean) {
-    if (isMobile && !isLandscape) {
-      // Show rotation overlay for mobile portrait
-      if (!rotationOverlay) {
-        createRotationOverlay();
-      }
-      if (rotationOverlay) {
-        rotationOverlay.style.display = 'flex';
-      }
-      // Pause game when showing overlay
-      if (app && app.ticker) {
-        app.ticker.speed = 0;
-      }
-    } else {
-      // Hide rotation overlay
-      if (rotationOverlay) {
-        rotationOverlay.style.display = 'none';
-      }
-      // Resume game
-      if (app && app.ticker) {
-        app.ticker.speed = 1;
-      }
-    }
+    // Rotation overlay intentionally disabled — do not force device rotation.
+    return;
   }
   applyCanvasCssSize();
   try { updateHudScale(); } catch (e) {}
@@ -2229,6 +2209,48 @@ async function init() {
     try { window && (window as any).dispatchEvent && (window as any).dispatchEvent(new CustomEvent('screen-scale', { detail: { scale: currentScale } })); } catch (e) {}
   } catch (e) {}
 
+  // Show a gray "click to play" overlay on initial load so the game
+  // only starts after a user gesture (necessary for audio on some browsers).
+  async function showClickToPlayOverlay() {
+    return new Promise<void>((resolve) => {
+      try {
+        const overlay = new Container();
+        overlay.zIndex = 100000;
+        overlay.interactive = true;
+
+        const overlayBg = new Graphics();
+        try { overlayBg.clear(); overlayBg.beginFill(0x000000, 0.6); overlayBg.drawRect(0, 0, WIDTH, HEIGHT); overlayBg.endFill(); } catch (e) {}
+        overlay.addChild(overlayBg);
+
+        const style = new TextStyle({ fill: '#ffffff', fontSize: 28, fontFamily: 'Helvetica-Bold' });
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) || (window.innerWidth <= 768);
+        const labelText = isMobile ? 'Tap to Play' : 'Click to Play';
+        const label = new Text({ text: labelText, style });
+        label.x = Math.round((WIDTH - label.width) / 2);
+        label.y = Math.round((HEIGHT - label.height) / 2);
+        overlay.addChild(label);
+
+        const start = () => {
+          try { if (overlay.parent) overlay.parent.removeChild(overlay); } catch (e) {}
+          try { window.removeEventListener('keydown', onKey); } catch (e) {}
+          resolve();
+        };
+
+        const onPointer = (e: any) => { try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); } catch (e) {} ; start(); };
+        const onKey = (ev: any) => { if (ev && (ev.code === 'Space' || ev.code === 'Enter')) { ev.preventDefault && ev.preventDefault(); start(); } };
+
+        overlay.on && overlay.on('pointerdown', onPointer);
+        try { window.addEventListener('keydown', onKey); } catch (e) {}
+
+        try { app.stage.addChild(overlay); } catch (e) { try { root.addChild(overlay); } catch (e) {} }
+      } catch (e) {
+        // If overlay creation fails for any reason, resolve to avoid blocking startup
+        resolve();
+      }
+    });
+  }
+
+  try { await showClickToPlayOverlay(); } catch (e) {}
   try { await startGame(); } catch (e) {}
   try { controlsEnabled = true; (window as any).__controlsEnabled = true; gameStartTime = Date.now(); } catch (e) {}
 
