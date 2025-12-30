@@ -21,25 +21,8 @@ export class ParticleManager {
   private poolSize = 50; // Max particles in pool
   
   private constructor() {
-    // Sử dụng texture đã được preload thay vì load trực tiếp
-    this.texture = this.getPreloadedTexture();
+    this.texture = Texture.from('/Assets/_arts/effect_double jump.png');
     this.initializePool();
-  }
-  
-  // Lấy texture đã được preload từ Assets
-  private getPreloadedTexture(): Texture {
-    try {
-      // Thử lấy từ PIXI Assets cache trước
-      const cachedTexture = Texture.from('/Assets/_arts/effect_double jump.png');
-      if (cachedTexture && cachedTexture.valid) {
-        return cachedTexture;
-      }
-    } catch (e) {
-      console.warn('Failed to get preloaded particle texture, using fallback');
-    }
-    
-    // Fallback: tạo texture trắng nhỏ
-    return Texture.WHITE;
   }
   
   static getInstance(): ParticleManager {
