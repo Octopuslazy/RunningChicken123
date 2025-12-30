@@ -108,7 +108,7 @@ export class MapHandler {
       this.patterns.push({ start: visualStart, length: visualLength, top: topForSurface, playerYOffset: p.playerYOffset ?? 0, container: p.container });
       
       // Update last pattern end position for dynamic generation
-      this.lastPatternEndX = Math.max(this.lastPatternEndX, visualStart + visualLength);
+      this.lastPatternEndX = Math.max(this.lastPatternEndX-300, visualStart + visualLength);
 
       // create a thin ground collider across the visual width of the pattern
       // so characters and physics can interact with the pattern surface. Skip
@@ -124,7 +124,8 @@ export class MapHandler {
           const colliderY = worldGroundTop - groundThickness;
           // lightweight collider object used for collision math only
           gcol = { y: colliderY };
-          this.obstacles.push({ x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any);
+          const groundObstacle = { x: visualStart, width: visualLength, height: groundThickness, sprite: gcol, isGround: true } as any;
+          this.obstacles.push(groundObstacle);
         } catch (e) {
           // ignore collider creation errors
         }
@@ -224,8 +225,10 @@ export class MapHandler {
 
     this.label.text = `Speed: ${Math.round(this.speed)} px/s  Distance: ${Math.floor(this.scroll)} px`;
 
+    // DISABLED: Legacy pit spawning - use pattern-based pits only
     // spawn simple pits and obstacles for now. These will be migrated to
     // proper Pattern factories in the next step.
+    /*
     const PIT_INTERVAL = 1600;
     const PIT_WIDTH = 160;
     const PIT_SPAWN_AHEAD = this.WIDTH * 0.8;
@@ -233,6 +236,7 @@ export class MapHandler {
       const px = this.scroll + PIT_SPAWN_AHEAD;
       this.pits.push({ x: px, width: PIT_WIDTH });
     }
+    */
 
     // obstacles (legacy)
     const OB_MIN_INTERVAL = 600;
@@ -263,6 +267,10 @@ export class MapHandler {
       this.obstacles.shift();
     }
     
+    // cleanup old pits behind camera to prevent array from growing indefinitely
+    const cleanupX = this.scroll - 5000;
+    this.pits = this.pits.filter(p => (p.x + p.width) >= cleanupX);
+    
     // Pattern pooling: cleanup old patterns and reuse containers
     this.cleanupOldPatterns();
     
@@ -275,8 +283,18 @@ export class MapHandler {
   getObstacles() { return this.obstacles; }
 
   isOverPit(worldX: number) {
+    if (!this.pits || !Array.isArray(this.pits)) {
+      return false;
+    }
+    
+    if (this.pits.length === 0) {
+      return false;
+    }
+    
     for (const p of this.pits) {
-      if (worldX >= p.x && worldX <= p.x + p.width) return true;
+      if (worldX >= p.x && worldX <= p.x + p.width) {
+        return true;
+      }
     }
     return false;
   }
@@ -289,6 +307,13 @@ export class MapHandler {
       const oldPattern = this.patterns.shift();
       if (oldPattern && oldPattern.container) {
         try {
+          // Remove obstacles associated with this pattern
+          const patternStart = oldPattern.start;
+          const patternEnd = oldPattern.start + oldPattern.length;
+          this.obstacles = this.obstacles.filter(obs => 
+            !(obs.x >= patternStart && obs.x < patternEnd)
+          );
+          
           // Remove from world but keep container for reuse
           this.world.removeChild(oldPattern.container);
           // Clear container contents for reuse
@@ -310,17 +335,25 @@ export class MapHandler {
     const playerPosition = this.scroll;
     const distanceToEnd = this.lastPatternEndX - playerPosition;
     
-    // Generate new patterns when player is within 5000px of the end
-    if (distanceToEnd < 5000 && this.patternFactories.length > 0) {
-      // Generate 5 new patterns
+    // Generate patterns when player is within 5000px of the end OR when no patterns exist (initial)
+    if ((distanceToEnd < 5000 || this.patterns.length === 0) && this.patternFactories.length > 0) {
+      // Generate 5 new patterns (or 5 initial patterns if none exist)
       for (let i = 0; i < 5; i++) {
         try {
-          // Pick a random factory from stored factories
-          const factoryIndex = Math.floor(Math.random() * this.patternFactories.length);
-          const factory = this.patternFactories[factoryIndex];
+          let factory;
+          // For initial patterns, use the first 5 easy factories in order
+          if (this.patterns.length < 5 && i < this.patternFactories.length) {
+            factory = this.patternFactories[i]; // Use easy patterns first
+          } else {
+            // Pick a random factory from stored factories for later patterns
+            const factoryIndex = Math.floor(Math.random() * this.patternFactories.length);
+            factory = this.patternFactories[factoryIndex];
+          }
           
           if (factory) {
-            this.addPattern(factory, this.lastPatternEndX + 300); // 300px gap between patterns
+            // For first pattern, start at x=0, others have 300px gap
+            const startX = this.patterns.length === 0 ? 0 : this.lastPatternEndX + 300;
+            this.addPattern(factory, startX);
           }
         } catch (e) {}
       }

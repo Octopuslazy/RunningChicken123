@@ -30,6 +30,7 @@ const CHARACTER_SCALE_FACTOR = 0.6;
 const app = new Application();
 
 async function init() {
+  console.log("=== GAME INIT STARTING ===");
   await (app as any).init({
     width: WIDTH,
     height: HEIGHT,
@@ -39,6 +40,8 @@ async function init() {
     // separately via `applyCanvasCssSize()` so the game logic
     // coordinates remain consistent across devices.
   });
+
+  console.log("=== PIXI APP INITIALIZED ===");
 
   // --- SỬA LỖI TẠI ĐÂY ---
   // BẮT BUỘC: Nạp toàn bộ tài nguyên (Spine, Ảnh, Nhạc) vào RAM trước tiên!
@@ -846,8 +849,6 @@ async function init() {
     try { await loadTexture('/Assets/_arts/obj_6.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/obs_1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/obs_2.png'); } catch (e) {}
-    try { await loadTexture('/Assets/_arts/obs_3.png'); } catch (e) {}
-    try { await loadTexture('/Assets/_arts/score.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_standee1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/gameover.jpg'); } catch (e) {}
     // try { await loadTexture('/Assets/Arts/anim/kfc_chicken.png'); } catch (e) {}
@@ -927,7 +928,7 @@ async function init() {
         const handler = (gameplay as any)._handler;
 
         const patterns: any[] = [];
-        const NUM_PATTERNS = 7; // Reduced from 200 for pooling system
+        // Use pooling system for ALL patterns, including initial easy ones
         const PIT_WIDTH = 300;
 
         const PATTERN_LENGTH = 750;
@@ -939,13 +940,22 @@ async function init() {
         const DANGER6_LENGTH = 2800;
         const DISTANCE_NORMAL_START = 4500;
 
-        let cursorX = 0;
-        for (let i = 0; i < NUM_PATTERNS; i++) {
+        // Store pattern factories for pooling system
+        const patternFactories: any[] = [];
+        
+        // Add 5 easy ground pattern factories first (for initial patterns)
+        for (let i = 0; i < 5; i++) {
+          const easyFactory = makeGroundPattern({ leftEnd: true, rightEnd: true, length: PATTERN_LENGTH });
+          patternFactories.push(easyFactory);
+        }
+        
+        // Create factory functions for more complex patterns (pooling system)
+        for (let i = 0; i < 15; i++) { // Create 15 more factory combinations
           const length = PATTERN_LENGTH;
-          const probUseDangerNow = (cursorX >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
+          const probUseDangerNow = (i * length >= DISTANCE_NORMAL_START) ? PROB_USE_DANGER_AFTER : PROB_USE_DANGER;
           let factory: any = null;
           if (Math.random() < probUseDangerNow) {
-            const includeD5 = cursorX >= DISTANCE_NORMAL_START;
+            const includeD5 = i * length >= DISTANCE_NORMAL_START;
             const entries: { w: number; fn: () => any }[] = [
               { w: DANGER_WEIGHTS.d1, fn: () => makeDanger1({ leftEnd: true, rightEnd: true, length }) },
               { w: DANGER_WEIGHTS.d2, fn: () => makeDanger2({ leftEnd: true, rightEnd: true, length }) },
@@ -971,7 +981,7 @@ async function init() {
           const factoryToUse = (startX2: number) => {
             try {
               const pd = chosenFactory(startX2);
-              if (pd && pd.difficulty === 'MEDIUM' && cursorX < DISTANCE_NORMAL_START) {
+              if (pd && pd.difficulty === 'MEDIUM' && i * length < DISTANCE_NORMAL_START) {
                 return makeGroundPattern({ leftEnd: true, rightEnd: true, length })(startX2);
               }
               return pd;
@@ -980,24 +990,13 @@ async function init() {
             }
           };
 
-          const p = handler.addPattern(factoryToUse, cursorX);
-          patterns.push(p);
-          
-          // Store factory for dynamic generation
-          handler.storePatternFactory(factoryToUse);
-
-          // Random item spawning on patterns removed (user will re-add later)
-
-          let visualLength = p && p.container ? (() => {
-            try { const b = p.container.getLocalBounds(); return b.width || p.length; } catch (e) { return p.length; }
-          })() : (p ? p.length : length);
-
-          if (i < NUM_PATTERNS - 1) {
-            try { (gameplay as any).getPits().push({ x: cursorX + visualLength, width: PIT_WIDTH }); } catch (e) {}
-          }
-
-          cursorX += visualLength;
-          if (i < NUM_PATTERNS - 1) cursorX += PIT_WIDTH;
+          // Store factory for dynamic generation without creating pattern
+          patternFactories.push(factoryToUse);
+        }
+        
+        // Store all factories in handler for pooling system
+        for (const factory of patternFactories) {
+          handler.storePatternFactory(factory);
         }
 
 
@@ -1045,7 +1044,6 @@ async function init() {
               const desiredScroll = targetWorldX - TARGET_SCREEN_X;
               world.x = -desiredScroll;
               world.y = 250; // Maintain camera Y offset - higher camera
-              console.log(`[CAMERA] Restart Update - world.x: ${world.x}, world.y: ${world.y}, targetWorldX: ${targetWorldX}`);
               if (handler) {
                 try { handler.scroll = desiredScroll; } catch (e) {}
                 // DISABLED: Don't set handler.world.x - it conflicts with main world.x
@@ -1134,7 +1132,14 @@ async function init() {
   const PLAYER_SPEED_FACTOR = 1.0;
   let debugFrameCount = 0;
 
+  let gameLoopLoggedOnce = false;
+
     app.ticker.add(() => {
+    if (!gameLoopLoggedOnce) {
+      console.log("=== GAME LOOP STARTED ===");
+      gameLoopLoggedOnce = true;
+    }
+    
     const deltaSec = (app.ticker as any).deltaMS / 1000;
 
     if (!gameplay) return;
@@ -1306,7 +1311,6 @@ async function init() {
       try { 
         world.x = -desiredScroll; 
         world.y = 250; // Raise camera Y position by 250px
-        console.log(`[CAMERA] Follow - world.x: ${world.x}, world.y: ${world.y}, player.worldX: ${player?.worldX}, desiredScroll: ${desiredScroll}`);
       } catch (e) {}
       try {
         const handler = (gameplay as any)?._handler;
@@ -1856,7 +1860,6 @@ async function init() {
       const desiredScroll = PLAYER_X - TARGET_SCREEN_X;
       world.x = -desiredScroll;
       world.y = 250; // Maintain camera Y offset - consistent with runtime camera
-      console.log(`[CAMERA] Restart - world.x: ${world.x}, world.y: ${world.y}, PLAYER_X: ${PLAYER_X}, TARGET_SCREEN_X: ${TARGET_SCREEN_X}`);
     } catch (e) {}
 
     // Clear death handled/invincibility flags
@@ -2335,4 +2338,10 @@ async function init() {
   document.addEventListener('DOMContentLoaded', onResize);
 }
 
-init();
+// Wait for DOM to be ready before initializing
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  // DOM is already loaded
+  init();
+}
