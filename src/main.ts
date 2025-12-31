@@ -411,9 +411,14 @@ async function init() {
         c.addChild(s);
       }
       function updateBig(scroll: number) {
-        const parallaxFactor = 0.25;
-        const offset = -((scroll * parallaxFactor) % extendedTileW);
-        c.x = offset;
+        // Move clouds left-right in place using sine wave
+        const time = performance.now() * 0.0002;
+        for (let i = 0; i < c.children.length; i++) {
+          const s = c.children[i] as import('pixi.js').Sprite;
+          const baseX = i * extendedTileW + (tileW / 2);
+          s.x = baseX + Math.sin(time + i) * 80; // 80px amplitude, adjust as needed
+        }
+        c.x = 0;
       }
       cloudBigLayer = { container: c, update: updateBig, tileWidth: tileW };
     }
@@ -440,9 +445,14 @@ async function init() {
         c.addChild(s);
       }
       function updateSmall(scroll: number) {
-        const parallaxFactor = 0.6;
-        const offset = -((scroll * parallaxFactor) % extendedTileWS);
-        c.x = offset;
+        // Move clouds left-right in place using sine wave
+        const time = performance.now() * 0.0003;
+        for (let i = 0; i < c.children.length; i++) {
+          const s = c.children[i] as import('pixi.js').Sprite;
+          const baseX = i * extendedTileWS + (tileW / 2);
+          s.x = baseX + Math.sin(time + i * 1.5) * 60; // 60px amplitude, adjust as needed
+        }
+        c.x = 0;
       }
       cloudSmallLayer = { container: c, update: updateSmall, tileWidth: tileW };
     }
