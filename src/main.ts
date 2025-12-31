@@ -1,4 +1,16 @@
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
+// Prevent PIXI from creating workers / using createImageBitmap which can trigger runtime fetch/XHR
+// (This shim runs before PIXI initialization to avoid WorkerManager spawning workers)
+try {
+  // Disable Worker creation in the environment for PIXI worker manager
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-ignore
+  if (typeof globalThis !== 'undefined') {
+    // Preserve original values in case needed later (not stored here to avoid exposing them)
+    (globalThis as any).Worker = undefined;
+    (globalThis as any).createImageBitmap = undefined;
+  }
+} catch (e) { /* ignore */ }
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { ParticleManager } from './partical/ParticleManager';
@@ -784,7 +796,7 @@ async function init() {
   let score = 0;
   let prevScore = 0;
   let lastDistanceThreshold = 0;
-  const REWARD_URL = 'https://play.google.com/store/apps/details?id=co.leap.games.CozySeat&pcampaignid=web_share';
+  const REWARD_URL = 'https://play.google.com/store/apps/details?id=com.gps.my.cozy.house&pcampaignid=web_share';
   const REWARD_THRESHOLD = 1500;
   let rewardShown = false;
   let rewardActive = false;
@@ -841,7 +853,7 @@ async function init() {
     try { await loadTexture('/Assets/_arts/obs_2.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/bg_1_standee1.png'); } catch (e) {}
     try { await loadTexture('/Assets/_arts/gameover.jpg'); } catch (e) {}
-    // try { await loadTexture('/Assets/Arts/anim/kfc_chicken.png'); } catch (e) {}
+
   } catch (e) {}
 
   let spaceHeld = false;
@@ -1720,9 +1732,12 @@ async function init() {
 
           btnG.on && btnG.on('pointerdown', (e: any) => {
             try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
-            try {
-              try { window.open(REWARD_URL, '_blank'); } catch (e) { try { window.location.href = REWARD_URL; } catch (e) {} }
-            } catch (e) {}
+            // Gọi hàm CTA custom
+            if (typeof FbPlayableAd !== 'undefined' && FbPlayableAd.onCTAClick) {
+                FbPlayableAd.onCTAClick();
+            } else {
+                console.log("Mở App Store (Test mode)");
+            }
             try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
           });
 

@@ -104,31 +104,22 @@ export class SpinePlayer {
             // CRITICAL: Setup atlas page properly
             if (atlas && atlas.pages.length > 0) {
                 const page = atlas.pages[0];
-                page.texture = {
-                    getImage: () => texture,
-                    setFilters: () => {},
-                    setWraps: () => {},
-                    dispose: () => {},
-                    width: texture.width,
-                    height: texture.height
-                };
-                page.rendererObject = texture;
-                page.width = texture.width;
-                page.height = texture.height;
+                // Use the provided PIXI Texture's baseTexture for pages and regions
+                const base = (texture as any).baseTexture || (texture as any)._baseTexture || texture;
+                page.texture = base;
+                page.rendererObject = base;
+                page.width = base.width || texture.width;
+                page.height = base.height || texture.height;
 
-                // Setup texture regions với manual slicing
+                // Setup texture regions with manual slicing
                 if (page.regions) {
-                    const source = texture.source;
                     for (const region of page.regions) {
                         const regionRect = new Rectangle(region.x, region.y, region.width, region.height);
-                        const regionTex = new Texture({
-                            source: source,
-                            frame: regionRect
-                        });
-                        
-                        // Update UVs để tránh lệch texture
-                        regionTex.updateUvs();
-                        
+                        const regionTex = new Texture(base, regionRect);
+
+                        // Update UVs to ensure correct UV mapping
+                        try { regionTex.updateUvs(); } catch (e) {}
+
                         region.texture = regionTex;
                         (region as any).renderObject = regionTex;
                     }
@@ -236,25 +227,17 @@ export class SpinePlayer {
 
         if (atlas && atlas.pages.length > 0) {
             const page = atlas.pages[0];
-            page.texture = readyTexture;
-            page.width = readyTexture.width;
-            page.height = readyTexture.height;
+            const base = (readyTexture as any).baseTexture || (readyTexture as any)._baseTexture || readyTexture;
+            page.texture = base;
+            page.rendererObject = base;
+            page.width = base.width || readyTexture.width;
+            page.height = base.height || readyTexture.height;
 
             if (page.regions) {
-                const source = readyTexture.source;
                 for (const region of page.regions) {
-                    // Tạo texture frame thủ công cho từng region
                     const regionRect = new Rectangle(region.x, region.y, region.width, region.height);
-                    
-                    // LƯU Ý: Dùng source gốc để đảm bảo chung 1 GPU texture ID
-                    const regionTex = new Texture({
-                        source: source,
-                        frame: regionRect
-                    });
-
-                    // Cập nhật UVs để chắc chắn không bị lệch
-                    regionTex.updateUvs();
-
+                    const regionTex = new Texture(base, regionRect);
+                    try { regionTex.updateUvs(); } catch (e) {}
                     region.texture = regionTex;
                     (region as any).renderObject = regionTex;
                 }

@@ -1,3 +1,4 @@
+declare var FbPlayableAd: any;
 // Khai báo cho TypeScript hiểu các file ảnh
 declare module '*.png';
 declare module '*.jpg';
