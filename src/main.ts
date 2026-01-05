@@ -11,6 +11,36 @@ try {
     (globalThis as any).createImageBitmap = undefined;
   }
 } catch (e) { /* ignore */ }
+// --- Global lifecycle hooks & FbPlayableAd fallback stubs (module-level) ---
+try {
+  const w = window as any;
+
+  if (typeof w.FbPlayableAd === 'undefined' || !w.FbPlayableAd) {
+    w.FbPlayableAd = {
+      onCTAClick: function() { try { window.open('https://leapstud.io/', '_blank'); } catch (e) {} },
+      gameReady: function() {},
+      gameStart: function() {},
+      gameEnd: function() {},
+      gameClose: function() {},
+      saveFile: function(name: string, data: string) { try { console.log('saveFile stub', name); } catch (e) {} },
+      loadFile: function(name: string) { try { console.log('loadFile stub', name); } catch (e) {} }
+    };
+  }
+
+  if (typeof w.gameReady === 'undefined') {
+    w.gameReady = function() { try { w.FbPlayableAd && w.FbPlayableAd.gameReady && w.FbPlayableAd.gameReady(); } catch (e) {} };
+  }
+  if (typeof w.gameStart === 'undefined') {
+    w.gameStart = function() { try { w.FbPlayableAd && w.FbPlayableAd.gameStart && w.FbPlayableAd.gameStart(); } catch (e) {} };
+  }
+  if (typeof w.gameEnd === 'undefined') {
+    w.gameEnd = function() { try { w.FbPlayableAd && w.FbPlayableAd.gameEnd && w.FbPlayableAd.gameEnd(); } catch (e) {} };
+  }
+  if (typeof w.gameClose === 'undefined') {
+    w.gameClose = function() { try { w.FbPlayableAd && w.FbPlayableAd.gameClose && w.FbPlayableAd.gameClose(); } catch (e) {} };
+  }
+} catch (e) {}
+
 import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { ParticleManager } from './partical/ParticleManager';
@@ -42,6 +72,7 @@ const CHARACTER_SCALE_FACTOR = 0.6;
 const app = new Application();
 
 async function init() {
+  try { console.log("=== BUNDLE LOADED: src/main.ts module executing ==="); } catch (e) {}
   console.log("=== GAME INIT STARTING ===");
   await (app as any).init({
     width: WIDTH,
@@ -60,6 +91,8 @@ async function init() {
   // Nếu không có dòng này, mọi lệnh loadTexture hay SpinePlayer ở dưới đều sẽ gây lỗi CORS.
   
       await loadGameAssets();
+      try { console.log('Assets loaded - calling window.gameReady if present'); } catch (e) {}
+      try { (window as any).gameReady && (window as any).gameReady(); } catch (e) { console.warn('gameReady call failed', e); }
   
   // -----------------------
 
@@ -1738,11 +1771,20 @@ async function init() {
 
           btnG.on && btnG.on('pointerdown', (e: any) => {
             try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
-            // Gọi hàm CTA custom
-            if (typeof FbPlayableAd !== 'undefined' && FbPlayableAd.onCTAClick) {
-                FbPlayableAd.onCTAClick();
-            } else {
-                console.log("Mở App Store (Test mode)");
+            // Gọi hàm CTA custom: nếu FbPlayableAd.onCTAClick tồn tại gọi nó,
+            // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới https://leapstud.io/
+            try {
+              if (typeof FbPlayableAd !== 'undefined' && FbPlayableAd.onCTAClick) {
+                try {
+                  FbPlayableAd.onCTAClick();
+                } catch (e) {
+                  try { window.open('https://leapstud.io/', '_blank'); } catch (e) {}
+                }
+              } else {
+                try { window.open('https://leapstud.io/', '_blank'); } catch (e) { console.log('CTA click fallback failed'); }
+              }
+            } catch (e) {
+              try { window.open('https://leapstud.io/', '_blank'); } catch (e) {}
             }
             try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
           });
@@ -1793,6 +1835,9 @@ async function init() {
     playerDead = false;
     controlsEnabled = false; // Tạm tắt controls trong khi restart
     gameStartTime = Date.now(); // Set game start time for grace period
+    try { console.log('GAME START: calling window.gameStart / window.mintGameStart'); } catch (e) {}
+    try { (window as any).gameStart && (window as any).gameStart(); } catch (e) {}
+    try { (window as any).mintGameStart && (window as any).mintGameStart(); } catch (e) {}
     
     // Clear queued game over
     if (gameOverQueuedTimer) {
@@ -1955,6 +2000,9 @@ async function init() {
     (window as any).__controlsEnabled = false; // Global flag for character input
     gameOver = true;
     playerDead = true;
+    try { console.log('GAME END: calling window.gameEnd / window.mintGameClose'); } catch (e) {}
+    try { (window as any).gameEnd && (window as any).gameEnd(); } catch (e) {}
+    try { (window as any).mintGameClose && (window as any).mintGameClose(); } catch (e) {}
     
     // Clear particle system to prevent lingering effects
     try {

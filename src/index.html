@@ -10,6 +10,14 @@
         body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
         #app { width: 100%; height: 100%; }
     </style>
+    <!-- Pre-bundle lifecycle stubs so ad networks (Mintegral etc.) can detect hooks early -->
+    <script>
+        window.mintGameStart = window.mintGameStart || function() { try { window.gameStart && window.gameStart(); } catch (e) {} };
+        window.mintGameClose = window.mintGameClose || function() { try { window.gameClose && window.gameClose(); } catch (e) {} };
+        window.gameReady = window.gameReady || function() { try { /* no-op until game signals ready */ } catch (e) {} };
+        function gameStart() {window.mintGameStart && window.mintGameStart()};
+        function gameClose() {window.mintGameClose && window.mintGameClose()}
+    </script>
 </head>
 <body>
     <div id="app"></div>
