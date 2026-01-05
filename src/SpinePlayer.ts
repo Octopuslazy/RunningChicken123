@@ -1,3 +1,4 @@
+
 import { Texture, Assets, Rectangle } from 'pixi.js';
 import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
 import { FIXED_CHICKEN_ALIAS, getSpineTexture, prepareSpineTexture, loadSpineAssets } from './assetLoader';
@@ -115,7 +116,7 @@ export class SpinePlayer {
                 if (page.regions) {
                     for (const region of page.regions) {
                         const regionRect = new Rectangle(region.x, region.y, region.width, region.height);
-                        const regionTex = new Texture(base, regionRect);
+                        const regionTex = new Texture({ source: base, frame: regionRect });
 
                         // Update UVs to ensure correct UV mapping
                         try { regionTex.updateUvs(); } catch (e) {}
@@ -236,7 +237,7 @@ export class SpinePlayer {
             if (page.regions) {
                 for (const region of page.regions) {
                     const regionRect = new Rectangle(region.x, region.y, region.width, region.height);
-                    const regionTex = new Texture(base, regionRect);
+                    const regionTex = new Texture({ source: base, frame: regionRect });
                     try { regionTex.updateUvs(); } catch (e) {}
                     region.texture = regionTex;
                     (region as any).renderObject = regionTex;

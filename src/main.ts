@@ -15,7 +15,7 @@ import { SpinePlayer } from './SpinePlayer';
 import { createCharacter } from './character';
 import { ParticleManager } from './partical/ParticleManager';
 import { createGameplay } from './gameplay';
-import { loadTexture, loadGameAssets } from './assetLoader';
+import { loadTexture, loadGameAssets, RAW_SPINE_ASSETS } from './assetLoader';
 import { makeGroundPattern } from './patterns/groundOnly';
 import makeDanger1 from './patterns/Danger1';
 import makeDanger2 from './patterns/Danger2';
@@ -599,10 +599,16 @@ async function init() {
       }
       
       const sp = new SpinePlayer('kfc_chicken');
-      
+
       // Use PIXI Assets-based loading method
       await sp.loadFromAssetLoader();
-      
+
+      // If Assets-based creation didn't yield a view, try the manual loader using raw imported assets
+      if (!sp.view) {
+        console.warn('Spine.from() did not produce a view; attempting manual load from RAW_SPINE_ASSETS');
+        try { await sp.load(undefined, RAW_SPINE_ASSETS); } catch (e) { console.warn('Manual sp.load failed', e); }
+      }
+
       if (!sp.view) {
         throw new Error('SpinePlayer.view is null after load!');
       }
