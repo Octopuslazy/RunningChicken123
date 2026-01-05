@@ -1774,15 +1774,54 @@ async function init() {
             // Gọi hàm CTA custom: nếu FbPlayableAd.onCTAClick tồn tại gọi nó,
             // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới https://leapstud.io/
             try {
-              if (typeof FbPlayableAd !== 'undefined' && FbPlayableAd.onCTAClick) {
+              const url = 'https://leapstud.io/';
+              const mraid = (window as any).mraid;
+
+              // If MRAID exists, prefer it but only call open when the creative is viewable
+              if (mraid && typeof mraid.open === 'function') {
                 try {
-                  FbPlayableAd.onCTAClick();
+                  const isViewable = typeof mraid.isViewable === 'function' ? mraid.isViewable() : true;
+                  const state = typeof mraid.getState === 'function' ? mraid.getState() : null;
+
+                  const doOpen = () => {
+                    try { mraid.open(url); } catch (e) { try { window.open(url, '_blank'); } catch (e) {} }
+                  };
+
+                  if (isViewable || state === 'default' || state === 'expanded') {
+                    doOpen();
+                    return;
+                  }
+
+                  // Not viewable yet (likely pre-roll). Wait for viewableChange or stateChange.
+                  const listener = () => {
+                    try {
+                      const nowViewable = typeof mraid.isViewable === 'function' ? mraid.isViewable() : true;
+                      if (nowViewable) {
+                        doOpen();
+                        try { mraid.removeEventListener && mraid.removeEventListener('viewableChange', listener); } catch (e) {}
+                        try { mraid.removeEventListener && mraid.removeEventListener('stateChange', listener); } catch (e) {}
+                      }
+                    } catch (e) {}
+                  };
+
+                  try { mraid.addEventListener && mraid.addEventListener('viewableChange', listener); } catch (e) {}
+                  try { mraid.addEventListener && mraid.addEventListener('stateChange', listener); } catch (e) {}
+
+                  // Safety fallback: open after 30s if not viewable
+                  setTimeout(() => { try { doOpen(); } catch (e) {} }, 30000);
+                  return;
                 } catch (e) {
-                  try { window.open('https://leapstud.io/', '_blank'); } catch (e) {}
+                  // fall through to other handlers
                 }
-              } else {
-                try { window.open('https://leapstud.io/', '_blank'); } catch (e) { console.log('CTA click fallback failed'); }
               }
+
+              // Then try FbPlayableAd hook
+              if (typeof (window as any).FbPlayableAd !== 'undefined' && (window as any).FbPlayableAd.onCTAClick) {
+                try { (window as any).FbPlayableAd.onCTAClick(); return; } catch (e) { /* fallback below */ }
+              }
+
+              // Last resort: open in new tab/window
+              try { window.open(url, '_blank'); } catch (e) { console.log('CTA click fallback failed', e); }
             } catch (e) {
               try { window.open('https://leapstud.io/', '_blank'); } catch (e) {}
             }
