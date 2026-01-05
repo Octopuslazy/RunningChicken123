@@ -1,4 +1,5 @@
 import { Assets, Texture, Rectangle } from 'pixi.js';
+import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
 
 declare const require: any;
 
@@ -72,90 +73,76 @@ export async function loadSpineAssets(): Promise<{
         return spineAssetsCache;
     }
     
-    // Load spine assets using PIXI Assets system like in spine-runtimes commit
+    // CSP-safe approach: do NOT create data: or blob: URLs at runtime.
+    // Only ensure the spine PNG texture is prepared and return raw atlas/json
+    // so the caller can assemble the atlas/skeleton in-memory or register
+    // them into `Assets.cache` using `registerSpineForSpineFrom()`.
     try {
-            // Create data URLs (base64-encoded) instead of blob URLs so we avoid
-            // using URL.createObjectURL and Blob which may be restricted in some hosts.
-            function toBase64Utf8(input: string) {
-                try {
-                    // Convert UTF-8 string to base64 safely
-                    return btoa(unescape(encodeURIComponent(input)));
-                } catch (e) {
-                    // Fallback: try naive btoa
-                    return btoa(input);
-                }
-            }
-
-            const atlasText = RAW_SPINE_ASSETS.atlas || '';
-            const atlasBase64 = toBase64Utf8(atlasText);
-            const atlasUrl = `data:text/plain;base64,${atlasBase64}`;
-
-            const jsonString = typeof RAW_SPINE_ASSETS.json === 'object'
-                ? JSON.stringify(RAW_SPINE_ASSETS.json)
-                : RAW_SPINE_ASSETS.json || '';
-            const jsonBase64 = toBase64Utf8(jsonString);
-            const jsonUrl = `data:application/json;base64,${jsonBase64}`;
-        
-        // First load the texture
-        const baseTexture = await Assets.load({
-            alias: 'spineTexture',
-            src: RAW_SPINE_ASSETS.png
-        });
-        
-        console.log('Base texture loaded:', {
-            width: baseTexture.width,
-            height: baseTexture.height,
-            valid: baseTexture.valid
-        });
-        
-        // Add atlas with explicit loadParser and texture mapping
-        Assets.add({
-            alias: 'spineAtlas',
-            loadParser: 'spineTextureAtlasLoader',
-            src: atlasUrl,
-            data: {
-                images: {
-                    'kfc_chicken.png': baseTexture.source // Use texture source for v8
-                }
-            }
-        });
-        
-        // Add skeleton data
-        Assets.add({
-            alias: 'spineSkeleton', 
-            loadParser: 'loadJson',
-            src: jsonUrl
-        });
-        
-        // Load both atlas and skeleton
-        await Assets.load(['spineAtlas', 'spineSkeleton']);
-        
-        console.log('Spine assets loaded via PIXI Assets system');
-        
-        // Cache the results
-        spineAssetsCache = {
-            texture: baseTexture,
-            jsonData: RAW_SPINE_ASSETS.json,
-            atlasText: RAW_SPINE_ASSETS.atlas
-        };
-        
-        return spineAssetsCache;
-        
-    } catch (error) {
-        console.error('Failed to load spine assets via PIXI Assets:', error);
-        
-        // Fallback to old method
         const texture = await prepareSpineTexture();
         const atlasText = RAW_SPINE_ASSETS.atlas;
         const jsonData = RAW_SPINE_ASSETS.json;
-        
+
         spineAssetsCache = {
             texture,
             jsonData,
             atlasText
         };
-        
+
         return spineAssetsCache;
+    } catch (error) {
+        console.error('Failed to prepare spine texture:', error);
+        const texture = await prepareSpineTexture();
+        spineAssetsCache = {
+            texture,
+            jsonData: RAW_SPINE_ASSETS.json,
+            atlasText: RAW_SPINE_ASSETS.atlas
+        };
+        return spineAssetsCache;
+    }
+}
+
+/**
+ * Register atlas and skeleton into PIXI.Assets.cache so `spine.Spine.from()`
+ * can load them via aliases. This mirrors the inline example that sets a
+ * TextureAtlas into the cache and maps pages to the loaded texture source.
+ */
+export async function registerSpineForSpineFrom(atlasAlias = 'spineAtlas', skeletonAlias = 'spineSkeleton') {
+    try {
+        const texture = await prepareSpineTexture();
+        if (!texture) throw new Error('No spine texture available');
+
+        const spineModule: any = spinePixi as any;
+        const TextureAtlasCtor = spineModule?.TextureAtlas || spineModule?.spine?.TextureAtlas || spineModule?.default?.spine?.TextureAtlas;
+        const SpineTextureCtor = spineModule?.SpineTexture || spineModule?.spine?.SpineTexture || spineModule?.default?.spine?.SpineTexture;
+
+        if (!TextureAtlasCtor || !SpineTextureCtor) {
+            console.warn('Spine TextureAtlas or SpineTexture not found in runtime');
+            return false;
+        }
+
+        // Create texture atlas from raw atlas text
+        const atlasText = RAW_SPINE_ASSETS.atlas || '';
+        const atlas = new TextureAtlasCtor(atlasText);
+
+        // Map each page to the loaded texture's underlying source
+        const src = (texture as any).source || (texture as any).baseTexture?.resource?.source || texture;
+        for (const page of atlas.pages) {
+            try {
+                const spineTex = SpineTextureCtor.from ? SpineTextureCtor.from(src) : new SpineTextureCtor(src);
+                if (page.setTexture) page.setTexture(spineTex); else page.texture = spineTex;
+            } catch (e) {
+                // ignore per-page failures
+            }
+        }
+
+        // Put atlas and skeleton directly into PIXI Assets cache
+        (Assets.cache as any).set(atlasAlias, atlas);
+        (Assets.cache as any).set(skeletonAlias, RAW_SPINE_ASSETS.json);
+
+        return true;
+    } catch (err) {
+        console.error('registerSpineForSpineFrom failed:', err);
+        return false;
     }
 }
 

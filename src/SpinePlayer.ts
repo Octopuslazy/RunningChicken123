@@ -1,7 +1,7 @@
 
 import { Texture, Assets, Rectangle } from 'pixi.js';
 import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
-import { FIXED_CHICKEN_ALIAS, getSpineTexture, prepareSpineTexture, loadSpineAssets } from './assetLoader';
+import { FIXED_CHICKEN_ALIAS, getSpineTexture, prepareSpineTexture, loadSpineAssets, registerSpineForSpineFrom } from './assetLoader';
 
 export class SpinePlayer {
     name: string;
@@ -36,11 +36,11 @@ export class SpinePlayer {
                 return null;
             }
             
+            // Register atlas/skeleton into Assets.cache so Spine.from() can use them
+            try { await registerSpineForSpineFrom('spineAtlas', 'spineSkeleton'); } catch (e) {}
+
             // Create spine using PIXI Assets aliases (similar to inline-loading.html example)
-            this.spine = SpineCtor.from({
-                skeleton: 'spineSkeleton',
-                atlas: 'spineAtlas'
-            });
+            this.spine = SpineCtor.from({ skeleton: 'spineSkeleton', atlas: 'spineAtlas' });
             
             this.view = this.spine;
             
