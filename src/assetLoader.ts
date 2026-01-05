@@ -74,15 +74,27 @@ export async function loadSpineAssets(): Promise<{
     
     // Load spine assets using PIXI Assets system like in spine-runtimes commit
     try {
-        // Create blob URLs for the assets (safer than data URLs)
-        const atlasBlob = new Blob([RAW_SPINE_ASSETS.atlas], { type: 'text/plain' });
-        const atlasUrl = URL.createObjectURL(atlasBlob);
-        
-        const jsonString = typeof RAW_SPINE_ASSETS.json === 'object' 
-            ? JSON.stringify(RAW_SPINE_ASSETS.json) 
-            : RAW_SPINE_ASSETS.json;
-        const jsonBlob = new Blob([jsonString], { type: 'application/json' });
-        const jsonUrl = URL.createObjectURL(jsonBlob);
+            // Create data URLs (base64-encoded) instead of blob URLs so we avoid
+            // using URL.createObjectURL and Blob which may be restricted in some hosts.
+            function toBase64Utf8(input: string) {
+                try {
+                    // Convert UTF-8 string to base64 safely
+                    return btoa(unescape(encodeURIComponent(input)));
+                } catch (e) {
+                    // Fallback: try naive btoa
+                    return btoa(input);
+                }
+            }
+
+            const atlasText = RAW_SPINE_ASSETS.atlas || '';
+            const atlasBase64 = toBase64Utf8(atlasText);
+            const atlasUrl = `data:text/plain;base64,${atlasBase64}`;
+
+            const jsonString = typeof RAW_SPINE_ASSETS.json === 'object'
+                ? JSON.stringify(RAW_SPINE_ASSETS.json)
+                : RAW_SPINE_ASSETS.json || '';
+            const jsonBase64 = toBase64Utf8(jsonString);
+            const jsonUrl = `data:application/json;base64,${jsonBase64}`;
         
         // First load the texture
         const baseTexture = await Assets.load({
