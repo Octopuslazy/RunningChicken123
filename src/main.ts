@@ -77,8 +77,8 @@ try {
   // Provide default store URLs so validators can find Play/App Store links
   if (typeof (w.MRAID_STORE_URLS) === 'undefined') {
     w.MRAID_STORE_URLS = {
-      android: 'https://play.google.com/store/apps/details?id=com.example',
-      ios: 'https://apps.apple.com/app/id000000'
+      android: 'https://play.google.com/store/apps/details?id=com.ggds.ski.resort.empire.idle.tycoon.game&pcampaignid=web_share',
+      ios: 'https://apps.apple.com/vn/app/tam-qu%E1%BB%91c-kh%E1%BB%9Fi-%C4%91%E1%BB%99ng/id6742780202?l=vi'
     };
   }
 } catch (e) {}
@@ -169,12 +169,13 @@ async function init() {
         try {
           const btn = document.getElementById('installButton') as HTMLButtonElement | null;
           if (btn) {
-            if (isSdkPresent && typeof playableSdk.install === 'function') {
-              btn.style.display = 'inline-block';
-              btn.onclick = () => { try { playableSdk.install && playableSdk.install(); } catch (e) {} };
-            } else {
+            try {
               btn.style.display = 'none';
-            }
+              if (typeof (sdk as any) !== 'undefined' && typeof (sdk as any).install === 'function') {
+                btn.style.display = 'inline-block';
+                btn.onclick = () => { try { (sdk as any).install(); } catch (e) {} };
+              }
+            } catch (e) { /* ignore */ }
           }
         } catch (e) {}
       } catch (e) {}
@@ -1856,11 +1857,10 @@ async function init() {
 
           btnG.on && btnG.on('pointerdown', (e: any) => {
             try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
-            // First prefer runtime-injected playable SDK install if available
+            // First prefer SDK install() from the imported/playable SDK
             try {
-              const runtimeSdk: any = (window as any).sdk;
-              if (runtimeSdk && typeof runtimeSdk.install === 'function') {
-                try { runtimeSdk.install(); rewardClaimed = true; controlsEnabled = false; } catch (e) {}
+              if (typeof (sdk as any) !== 'undefined' && typeof (sdk as any).install === 'function') {
+                try { (sdk as any).install(); rewardClaimed = true; controlsEnabled = false; } catch (e) {}
                 return;
               }
             } catch (e) {}
