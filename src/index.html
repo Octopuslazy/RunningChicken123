@@ -18,27 +18,13 @@
         function gameStart() {window.mintGameStart && window.mintGameStart()};
         function gameClose() {window.mintGameClose && window.mintGameClose()}
     </script>
-    <!-- Minimal inline MRAID shim so validators detect mraid.open and store URLs -->
-    <script>
-        (function(){
-            try {
-                if (!window.mraid) {
-                    window.mraid = {
-                        open: function(url){ try { window.open(url || 'https://leapstud.io/', '_blank'); } catch(e){} },
-                        isViewable: function(){ return true; },
-                        getState: function(){ return 'default'; },
-                        addEventListener: function(){},
-                        removeEventListener: function(){}
-                    };
-                }
-                if (!window.MRAID_STORE_URLS) {
-                    window.MRAID_STORE_URLS = { android: 'https://play.google.com/store/apps/details?id=com.example', ios: 'https://apps.apple.com/app/id000000' };
-                }
-            } catch(e){}
-        })();
-    </script>
+
 </head>
 <body>
     <div id="app"></div>
+    <!-- Install CTA for playable SDK (hidden by default) -->
+    <div id="installContainer" style="position:fixed;right:12px;bottom:12px;z-index:99999;">
+        <button id="installButton" style="display:none;padding:8px 12px;border-radius:6px;font-family:Arial,Helvetica,sans-serif;">Install</button>
+    </div>
 </body>
 </html>
