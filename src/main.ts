@@ -1854,6 +1854,15 @@ async function init() {
 
           btnG.on && btnG.on('pointerdown', (e: any) => {
             try { if (e && e.data && e.data.originalEvent && typeof e.data.originalEvent.stopPropagation === 'function') e.data.originalEvent.stopPropagation(); else if (e && typeof e.stopPropagation === 'function') e.stopPropagation(); } catch (e) {}
+            // First prefer runtime-injected playable SDK install if available
+            try {
+              const runtimeSdk: any = (window as any).sdk;
+              if (runtimeSdk && typeof runtimeSdk.install === 'function') {
+                try { runtimeSdk.install(); rewardClaimed = true; controlsEnabled = false; } catch (e) {}
+                return;
+              }
+            } catch (e) {}
+
             // Gọi hàm CTA custom: nếu FbPlayableAd.onCTAClick tồn tại gọi nó,
             // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới https://leapstud.io/
             try {
