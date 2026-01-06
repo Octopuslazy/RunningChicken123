@@ -84,6 +84,8 @@ try {
 } catch (e) {}
 
 import { SpinePlayer } from './SpinePlayer';
+// Playable SDK (static import restored)
+import { sdk } from '@smoud/playable-sdk';
 import { createCharacter } from './character';
 import { ParticleManager } from './partical/ParticleManager';
 import { createGameplay } from './gameplay';
