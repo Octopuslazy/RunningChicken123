@@ -45,7 +45,7 @@ export function showGameOver(params: ShowGameOverParams) {
     const canvasRect = canvas.getBoundingClientRect();
     const cssW = canvasRect.width || sw;
     const cssH = canvasRect.height || sh;
-    try { console.log(`[GAMEOVER] overlay using renderer ${gameLogicalW}x${gameLogicalH}, css ${cssW}x${cssH}`); } catch (e) {}
+    // GAMEOVER overlay using renderer
     const fullScreenScale = 1.0;
 
     // Try to use a gameover image, otherwise fall back to a dark overlay

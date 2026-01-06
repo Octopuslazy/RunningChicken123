@@ -44,12 +44,7 @@ export class SpinePlayer {
             
             this.view = this.spine;
             
-            console.log('Spine created using Spine.from():', {
-                spineValid: !!this.spine,
-                viewValid: !!this.view,
-                hasState: !!this.spine?.state,
-                hasSkeleton: !!this.spine?.skeleton
-            });
+            // Spine created using Spine.from()
             
             // Setup spine instance
             if (this.spine) {
@@ -133,12 +128,7 @@ export class SpinePlayer {
             const skeletonData = skeletonJson.readSkeletonData(parsedJson);
             const spine = new SpineCtor(skeletonData);
 
-            console.log('Spine Creation Debug:', {
-                atlasPages: atlas?.pages?.length || 0,
-                skeletonValid: !!skeletonData,
-                spineValid: !!spine,
-                animations: skeletonData?.animations?.length || 0
-            });
+            // Spine Creation Debug
 
             // Setup spine instance
             this.spine = spine;

@@ -6,12 +6,14 @@
     "dev": "cross-env AD_NETWORK=applovin playable-scripts start",
     "prebuild": "node ./scripts/generate-build-vars.js",
     "build": "playable-scripts build",
+    "postbuild": "node ./scripts/replace-fetch.js",
     "build:applovin": "cross-env AD_NETWORK=applovin npm run build",
     "build:facebook": "cross-env AD_NETWORK=facebook npm run build",
     "build:mintegral": "cross-env AD_NETWORK=mintegral npm run build",
     "build:unity": "cross-env AD_NETWORK=unity npm run build",
     "build:google": "cross-env AD_NETWORK=google npm run build",
-    "build:all": "npm run build:applovin && npm run build:facebook && npm run build:mintegral && npm run build:unity && npm run build:google"
+    "build:all": "npm run build:applovin && npm run build:facebook && npm run build:mintegral && npm run build:unity && npm run build:google",
+    "fix-fetch": "node ./scripts/replace-fetch.js"
   },
   "playable": {
     "entry": "src/index.ts",

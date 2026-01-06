@@ -18,6 +18,13 @@ module.exports = {
 
     resolve: {
         extensions: ['.ts', '.js', '.mjs', '.json'],
+        alias: {
+            // Replace fetch with polyfill
+            // This might not work for all cases as fetch is a global
+        },
+        fallback: {
+            // Provide polyfills if needed
+        }
     },
 
     module: {

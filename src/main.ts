@@ -1,8 +1,9 @@
 // @ts-ignore
 import './build-vars.js';
+// Import fetch polyfill BEFORE any libraries
+import './fetchPolyfill';
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
-// Prevent PIXI from creating workers / using createImageBitmap which can trigger runtime fetch/XHR
-// (This shim runs before PIXI initialization to avoid WorkerManager spawning workers)
+
 try {
   // Disable Worker creation in the environment for PIXI worker manager
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -24,8 +25,8 @@ try {
       gameStart: function() {},
       gameEnd: function() {},
       gameClose: function() {},
-      saveFile: function(name: string, data: string) { try { console.log('saveFile stub', name); } catch (e) {} },
-      loadFile: function(name: string) { try { console.log('loadFile stub', name); } catch (e) {} }
+      saveFile: function(name: string, data: string) { try { /* saveFile stub */ } catch (e) {} },
+      loadFile: function(name: string) { try { /* loadFile stub */ } catch (e) {} }
     };
   }
 
@@ -119,8 +120,8 @@ const CHARACTER_SCALE_FACTOR = 0.6;
 const app = new Application();
 
 async function init() {
-  try { console.log("=== BUNDLE LOADED: src/main.ts module executing ==="); } catch (e) {}
-  console.log("=== GAME INIT STARTING ===");
+  // Bundle loaded
+  // Game init starting
   await (app as any).init({
     width: WIDTH,
     height: HEIGHT,
@@ -131,14 +132,14 @@ async function init() {
     // coordinates remain consistent across devices.
   });
 
-  console.log("=== PIXI APP INITIALIZED ===");
+  // PIXI app initialized
 
   // --- SỬA LỖI TẠI ĐÂY ---
   // BẮT BUỘC: Nạp toàn bộ tài nguyên (Spine, Ảnh, Nhạc) vào RAM trước tiên!
   // Nếu không có dòng này, mọi lệnh loadTexture hay SpinePlayer ở dưới đều sẽ gây lỗi CORS.
   
       await loadGameAssets();
-      try { console.log('Assets loaded - calling window.gameReady if present'); } catch (e) {}
+      // Assets loaded
       try { (window as any).gameReady && (window as any).gameReady(); } catch (e) { console.warn('gameReady call failed', e); }
       // --- Playable SDK quick-start (safe runtime shim to avoid build-time dependency) ---
       try {
@@ -175,13 +176,13 @@ async function init() {
           playableSdk.on && playableSdk.on('start', () => { try { if (typeof startGame === 'function') startGame(); } catch(e){} });
           playableSdk.on && playableSdk.on('interaction', (count: number) => {
             try {
-              console.log('SDK interaction', count);
+              // SDK interaction
               // show install CTA after enough interactions
               try { if (count >= 3) { const ib = document.getElementById('installButton'); if (ib) ib.style.display = 'inline-block'; } } catch(e){}
             } catch(e){}
           });
           playableSdk.on && playableSdk.on('retry', () => { try { if (typeof restartGame === 'function') restartGame(); } catch(e){} });
-          playableSdk.on && playableSdk.on('install', () => { try { console.log('SDK install event'); } catch(e){} });
+          playableSdk.on && playableSdk.on('install', () => { try { /* SDK install event */ } catch(e){} });
 
           // Start the playable when resources are loaded
           try { playableSdk.start && playableSdk.start(); } catch (e) {}
@@ -760,16 +761,16 @@ async function init() {
       sp.setPosition(player.worldX, player.y);
       
       // FORCE remove old sprite
-      console.log('Removing old sprite, current sprite type:', player.sprite.constructor.name);
+      // Removing old sprite
       try { 
         world.removeChild(player.sprite); 
-        console.log('Old sprite removed successfully');
+        // Old sprite removed
       } catch(e){
         console.error('Failed to remove old sprite:', e);
       }
       
       // Gán sprite mới và thêm vào world
-      console.log('Replacing with spine view, type:', sp.view.constructor.name);
+      // Replacing with spine view
       player.sprite = sp.view;
       // Ensure the new Spine view uses a centered anchor/pivot and record it
       try {
@@ -794,7 +795,7 @@ async function init() {
       world.addChild(player.sprite);
       // Ensure Spine character is visually smaller: scale down by 50%
       try { if (player && player.sprite && (player.sprite as any).scale) { (player.sprite as any).scale.x *= 0.5; (player.sprite as any).scale.y *= 0.5; } } catch (e) {}
-      console.log('New spine sprite added to world');
+      // New spine sprite added
       world.sortableChildren = true;
       
       spinePlayerInstance = sp;
@@ -819,12 +820,7 @@ async function init() {
         const bounds = sp.view.getBounds ? sp.view.getBounds() : null;
         const hasSize = bounds && (bounds.width > 0 || bounds.height > 0);
         
-        console.log('Spine Bounds Check:', {
-          hasBounds: !!bounds,
-          width: bounds?.width || 0,
-          height: bounds?.height || 0,
-          hasSize: hasSize
-        });
+        // Spine Bounds Check
         
         // Force use spine even if bounds are 0 (bounds might be calculated after first render)
         // Don't create emergency fallback
@@ -1285,7 +1281,7 @@ async function init() {
 
     app.ticker.add(() => {
     if (!gameLoopLoggedOnce) {
-      console.log("=== GAME LOOP STARTED ===");
+      // Game loop started
       gameLoopLoggedOnce = true;
     }
     
@@ -1937,7 +1933,7 @@ async function init() {
               }
 
               // Last resort: open in new tab/window
-              try { window.open(url, '_blank'); } catch (e) { console.log('CTA click fallback failed', e); }
+              try { window.open(url, '_blank'); } catch (e) { /* CTA click fallback failed */ }
             } catch (e) {
               try { window.open((window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/', '_blank'); } catch (e) {}
             }
@@ -1990,7 +1986,7 @@ async function init() {
     playerDead = false;
     controlsEnabled = false; // Tạm tắt controls trong khi restart
     gameStartTime = Date.now(); // Set game start time for grace period
-    try { console.log('GAME START: calling window.gameStart / window.mintGameStart'); } catch (e) {}
+    // Game start
     try { (window as any).gameStart && (window as any).gameStart(); } catch (e) {}
     try { (window as any).mintGameStart && (window as any).mintGameStart(); } catch (e) {}
     
@@ -2022,7 +2018,7 @@ async function init() {
 
     // XÓA TẤT CẢ CHILDREN TRONG WORLD (trừ background và player)
     try {
-      console.log('Cleaning world children, before:', world.children.length);
+      // Cleaning world children
       
       // Lưu lại các objects cần giữ
       const childrenToKeep = [];
@@ -2042,7 +2038,7 @@ async function init() {
         }
       }
       
-      console.log('World children after cleanup:', world.children.length);
+      // World children cleaned
     } catch (e) {
       console.error('Error cleaning world:', e);
     }
@@ -2138,7 +2134,7 @@ async function init() {
   function doGameOver(finalReason?: string, force = false) {
     try { if (rewardActive || rewardPermanentStop) return; } catch (e) {}
     if (gameOver) return;
-    try { console.log('doGameOver called', finalReason, 'force=', force, 'playerInvincible=', playerInvincible, 'deathHandled=', deathHandled); } catch (e) {}
+    // doGameOver called
     try {
       if (!force) {
         const handler = (gameplay as any)._handler;
@@ -2155,7 +2151,7 @@ async function init() {
     (window as any).__controlsEnabled = false; // Global flag for character input
     gameOver = true;
     playerDead = true;
-    try { console.log('GAME END: calling window.gameEnd / window.mintGameClose'); } catch (e) {}
+    // Game end
     try { (window as any).gameEnd && (window as any).gameEnd(); } catch (e) {}
     try { (window as any).mintGameClose && (window as any).mintGameClose(); } catch (e) {}
     
@@ -2171,7 +2167,7 @@ async function init() {
     } catch (e) {}
 
     try {
-      try { console.log('calling showGameOver overlay'); } catch (e) {}
+      // showGameOver overlay
       showGameOver({ app, root, canvas, onPlayAgain: () => { try { restartGame(); } catch (e) { try { window.location.reload(); } catch (e) { try { location.reload(); } catch (e) {} } } }, onRespawn: () => {
         try {
           // Stop all sounds including game over audio

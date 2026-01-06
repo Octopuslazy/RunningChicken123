@@ -19,4 +19,4 @@ window.GOOGLE_PLAY_URL = window.GOOGLE_PLAY_URL || ${JSON.stringify(GOOGLE_PLAY_
  window.SUPPORTED_AD_NETWORKS = window.SUPPORTED_AD_NETWORKS || ${JSON.stringify(SUPPORTED_AD_NETWORKS)};\n  } catch(e) {}\n})();\n`;
 
 fs.writeFileSync(outPath, content, 'utf8');
-console.log('Wrote build-vars to', outPath);
+// Build vars generated
