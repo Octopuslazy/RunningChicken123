@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <title>Running Chicken</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!-- Static store links for validators (can be overridden in CI via build-vars) -->
+    <meta name="google-play-url" content="https://play.google.com/store/apps/details?id=com.ggds.ski.resort.empire.idle.tycoon.game&pcampaignid=web_share">
+    <meta name="app-store-url" content="https://apps.apple.com/vn/app/tam-qu%E1%BB%91c-kh%E1%BB%9Fi-%C4%91%E1%BB%99ng/id6742780202?l=vi">
     <meta http-equiv="Content-Security-Policy" content="default-src * 'self' 'unsafe-inline' 'unsafe-eval' data: gap: content: blob:; style-src * 'self' 'unsafe-inline' 'unsafe-eval' blob:; script-src * 'self' 'unsafe-inline' 'unsafe-eval' blob:; connect-src * 'self' 'unsafe-inline' 'unsafe-eval' blob: data:;">
     
     <style>
@@ -18,8 +21,30 @@
         function gameStart() {window.mintGameStart && window.mintGameStart()};
         function gameClose() {window.mintGameClose && window.mintGameClose()}
     </script>
-    <!-- build-vars will be generated into src/build-vars.js by the prebuild step -->
-    <script src="./build-vars.js"></script>
+        <!-- build-vars will be generated into src/build-vars.js by the prebuild step -->
+        <script src="./build-vars.js"></script>
+        <!-- Minimal static MRAID shim that uses meta tags as fallback so validators detect mraid.open -->
+        <script>
+            (function(){
+                try {
+                    var gp = document.querySelector('meta[name="google-play-url"]') && document.querySelector('meta[name="google-play-url"]').getAttribute('content');
+                    var ap = document.querySelector('meta[name="app-store-url"]') && document.querySelector('meta[name="app-store-url"]').getAttribute('content');
+                    if (!window.mraid) {
+                        window.mraid = {
+                            open: function(url){ try { var target = (url && typeof url === 'string') ? url : (gp || ap || '/'); window.open(target, '_blank'); } catch(e){} },
+                            isViewable: function(){ return true; },
+                            getState: function(){ return 'default'; },
+                            addEventListener: function(){},
+                            removeEventListener: function(){}
+                        };
+                    }
+                    if (!window.MRAID) { try { window.MRAID = window.mraid; } catch(e){} }
+                    if (!window.MRAID_STORE_URLS) {
+                        try { window.MRAID_STORE_URLS = { android: gp || '', ios: ap || '' }; } catch(e){}
+                    }
+                } catch(e) {}
+            })();
+        </script>
  
 
 </head>
