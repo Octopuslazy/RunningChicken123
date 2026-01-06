@@ -3,9 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "playable-scripts start",
+    "dev": "cross-env AD_NETWORK=applovin playable-scripts start",
     "prebuild": "node ./scripts/generate-build-vars.js",
-    "build": "playable-scripts build"
+    "build": "playable-scripts build",
+    "build:applovin": "cross-env AD_NETWORK=applovin npm run build",
+    "build:facebook": "cross-env AD_NETWORK=facebook npm run build",
+    "build:mintegral": "cross-env AD_NETWORK=mintegral npm run build",
+    "build:unity": "cross-env AD_NETWORK=unity npm run build",
+    "build:google": "cross-env AD_NETWORK=google npm run build",
+    "build:all": "npm run build:applovin && npm run build:facebook && npm run build:mintegral && npm run build:unity && npm run build:google"
   },
   "playable": {
     "entry": "src/index.ts",
@@ -20,16 +26,17 @@
     ]
   },
   "dependencies": {
-    "@smoud/playable-sdk": "^1.0.0",
     "@esotericsoftware/spine-pixi-v8": "^4.2.95",
     "@pixi-spine/runtime-4.1": "^4.0.6",
-    "pixi.js": "^8.2.0",
     "@pixi/sound": "^6.0.0",
-    "pixi-spine": "^4.0.0"
+    "@smoud/playable-sdk": "^1.0.0",
+    "pixi-spine": "^4.0.0",
+    "pixi.js": "^8.2.0"
   },
   "devDependencies": {
     "@smoud/playable-scripts": "^1.1.2",
     "compression-webpack-plugin": "^11.1.0",
+    "cross-env": "^10.1.0",
     "css-loader": "^7.1.2",
     "html-inline-script-webpack-plugin": "^3.2.1",
     "html-minifier-terser": "^7.2.0",

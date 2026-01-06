@@ -1,3 +1,5 @@
+// @ts-ignore
+import './build-vars.js';
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
 // Prevent PIXI from creating workers / using createImageBitmap which can trigger runtime fetch/XHR
 // (This shim runs before PIXI initialization to avoid WorkerManager spawning workers)

@@ -10,7 +10,13 @@ const APP_STORE_URL = process.env.APP_STORE_URL || 'https://apps.apple.com/vn/ap
 const BUILD_HASH = process.env.BUILD_HASH || 'local-build';
 const SUPPORTED_AD_NETWORKS = (process.env.SUPPORTED_AD_NETWORKS && process.env.SUPPORTED_AD_NETWORKS.split(',')) || ['applovin','mintegral','unity','facebook','ironsource','google','tiktok'];
 
-const content = `(function(){\n  try {\n    window.AD_NETWORK = window.AD_NETWORK || ${JSON.stringify(AD_NETWORK)};\n    window.AD_PROTOCOL = window.AD_PROTOCOL || ${JSON.stringify(AD_PROTOCOL)};\n    window.GOOGLE_PLAY_URL = window.GOOGLE_PLAY_URL || ${JSON.stringify(GOOGLE_PLAY_URL)};\n    window.APP_STORE_URL = window.APP_STORE_URL || ${JSON.stringify(APP_STORE_URL)};\n    window.BUILD_HASH = window.BUILD_HASH || ${JSON.stringify(BUILD_HASH)};\n    window.SUPPORTED_AD_NETWORKS = window.SUPPORTED_AD_NETWORKS || ${JSON.stringify(SUPPORTED_AD_NETWORKS)};\n  } catch(e) {}\n})();\n`;
+const content = `(function(){\n  try {\n    
+window.AD_NETWORK = window.AD_NETWORK || ${JSON.stringify(AD_NETWORK)};\n    
+window.AD_PROTOCOL = window.AD_PROTOCOL || ${JSON.stringify(AD_PROTOCOL)};\n    
+window.GOOGLE_PLAY_URL = window.GOOGLE_PLAY_URL || ${JSON.stringify(GOOGLE_PLAY_URL)};\n   
+ window.APP_STORE_URL = window.APP_STORE_URL || ${JSON.stringify(APP_STORE_URL)};\n    
+ window.BUILD_HASH = window.BUILD_HASH || ${JSON.stringify(BUILD_HASH)};\n    
+ window.SUPPORTED_AD_NETWORKS = window.SUPPORTED_AD_NETWORKS || ${JSON.stringify(SUPPORTED_AD_NETWORKS)};\n  } catch(e) {}\n})();\n`;
 
 fs.writeFileSync(outPath, content, 'utf8');
 console.log('Wrote build-vars to', outPath);
