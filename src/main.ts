@@ -84,8 +84,6 @@ try {
 } catch (e) {}
 
 import { SpinePlayer } from './SpinePlayer';
-// Playable SDK (optional)
-import { sdk } from '@smoud/playable-sdk';
 import { createCharacter } from './character';
 import { ParticleManager } from './partical/ParticleManager';
 import { createGameplay } from './gameplay';
@@ -137,32 +135,46 @@ async function init() {
       await loadGameAssets();
       try { console.log('Assets loaded - calling window.gameReady if present'); } catch (e) {}
       try { (window as any).gameReady && (window as any).gameReady(); } catch (e) { console.warn('gameReady call failed', e); }
-      // --- Playable SDK quick-start (from provided snippet) ---
+      // --- Playable SDK quick-start (safe runtime shim to avoid build-time dependency) ---
       try {
-        if (sdk) {
-          try {
-            sdk.init((width: number, height: number) => {
-              // Game is already initialized via PIXI; nothing to do here.
-            });
+        const isSdkPresent = !!(window as any).sdk;
+        const playableSdk: any = (window as any).sdk || {
+          init: (_cb?: any) => {},
+          on: (_ev?: any, _cb?: any) => {},
+          start: () => {},
+          install: () => {},
+          finish: () => {}
+        };
 
-            // Listen for events from the host/container
-            sdk.on && sdk.on('resize', (w: number, h: number) => {
-              try { applyCanvasCssSize(); } catch (e) {}
-            });
+        try {
+          playableSdk.init && playableSdk.init((width: number, height: number) => {
+            // Game already initialized via PIXI; keep this no-op to satisfy hosts.
+          });
 
-            sdk.on && sdk.on('pause', () => {
-              try { /* pause game if you have a pause handler */ } catch (e) {}
-            });
-            sdk.on && sdk.on('resume', () => {
-              try { /* resume game if you have a resume handler */ } catch (e) {}
-            });
-            sdk.on && sdk.on('volume', (_v: any) => { try { /* forward volume */ } catch (e) {} });
-            sdk.on && sdk.on('finish', () => { try { (window as any).gameEnd && (window as any).gameEnd(); } catch (e) {} });
+          playableSdk.on && playableSdk.on('resize', (w: number, h: number) => {
+            try { applyCanvasCssSize(); } catch (e) {}
+          });
+          playableSdk.on && playableSdk.on('pause', () => { try { /* pause handler */ } catch (e) {} });
+          playableSdk.on && playableSdk.on('resume', () => { try { /* resume handler */ } catch (e) {} });
+          playableSdk.on && playableSdk.on('volume', (_v: any) => { try { /* volume */ } catch (e) {} });
+          playableSdk.on && playableSdk.on('finish', () => { try { (window as any).gameEnd && (window as any).gameEnd(); } catch (e) {} });
 
-            // Start the playable when resources are loaded
-            try { sdk.start && sdk.start(); } catch (e) {}
-          } catch (e) {}
-        }
+          // Start the playable when resources are loaded
+          try { playableSdk.start && playableSdk.start(); } catch (e) {}
+        } catch (e) {}
+
+        // Wire install button if present in DOM (show only when real SDK provides install)
+        try {
+          const btn = document.getElementById('installButton') as HTMLButtonElement | null;
+          if (btn) {
+            if (isSdkPresent && typeof playableSdk.install === 'function') {
+              btn.style.display = 'inline-block';
+              btn.onclick = () => { try { playableSdk.install && playableSdk.install(); } catch (e) {} };
+            } else {
+              btn.style.display = 'none';
+            }
+          }
+        } catch (e) {}
       } catch (e) {}
   
   // -----------------------
