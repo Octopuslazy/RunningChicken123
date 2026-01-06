@@ -27,6 +27,8 @@ class SoundController {
   private basePath = '/Assets/Sounds/';
   private lastOneOff: HTMLAudioElement | null = null;
   private bgPlaying = false;
+  private volumeLevel = 1.0;
+  private baseBgVolume = 0.45;
   private lastPlayed: Record<SoundKeys, number> = {
     bg: 0,
     jump: 0,
@@ -84,7 +86,7 @@ class SoundController {
       if (!this.sounds.bg) return;
       // Some browsers require a user gesture to play audio. We attempt to play,
       // but failures should be handled silently.
-      this.sounds.bg.volume = 0.45;
+      this.sounds.bg.volume = this.baseBgVolume * this.volumeLevel;
       const p = this.sounds.bg.play();
       if (p && typeof (p as any).catch === 'function') {
         (p as any).catch(() => { /* ignore autoplay block */ });
@@ -111,9 +113,19 @@ class SoundController {
       setTimeout(() => {
         try {
           this.sounds.bg!.muted = false;
-          this.sounds.bg!.volume = 0.45;
+          this.sounds.bg!.volume = this.baseBgVolume * this.volumeLevel;
         } catch (e) {}
       }, unmuteAfterMs);
+    } catch (e) {}
+  }
+
+  // Set global volume (0..1). Applies to background and future sounds.
+  setVolume(level: number) {
+    try {
+      const v = Math.max(0, Math.min(1, (typeof level === 'number' ? level : 1)));
+      this.volumeLevel = v;
+      // Apply to background if present
+      try { if (this.sounds.bg) this.sounds.bg.volume = this.baseBgVolume * this.volumeLevel; } catch (e) {}
     } catch (e) {}
   }
 

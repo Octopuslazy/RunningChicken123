@@ -17,7 +17,7 @@ try {
 
   if (typeof w.FbPlayableAd === 'undefined' || !w.FbPlayableAd) {
     w.FbPlayableAd = {
-      onCTAClick: function() { try { window.open('https://leapstud.io/', '_blank'); } catch (e) {} },
+      onCTAClick: function() { try { window.open((window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/', '_blank'); } catch (e) {} },
       gameReady: function() {},
       gameStart: function() {},
       gameEnd: function() {},
@@ -77,8 +77,8 @@ try {
   // Provide default store URLs so validators can find Play/App Store links
   if (typeof (w.MRAID_STORE_URLS) === 'undefined') {
     w.MRAID_STORE_URLS = {
-      android: 'https://play.google.com/store/apps/details?id=com.ggds.ski.resort.empire.idle.tycoon.game&pcampaignid=web_share',
-      ios: 'https://apps.apple.com/vn/app/tam-qu%E1%BB%91c-kh%E1%BB%9Fi-%C4%91%E1%BB%99ng/id6742780202?l=vi'
+      android: (window as any).GOOGLE_PLAY_URL || 'https://play.google.com/store/apps/details?id=com.ggds.ski.resort.empire.idle.tycoon.game&pcampaignid=web_share',
+      ios: (window as any).APP_STORE_URL || 'https://apps.apple.com/vn/app/tam-qu%E1%BB%91c-kh%E1%BB%9Fi-%C4%91%E1%BB%99ng/id6742780202?l=vi'
     };
   }
 } catch (e) {}
@@ -139,8 +139,8 @@ async function init() {
       try { (window as any).gameReady && (window as any).gameReady(); } catch (e) { console.warn('gameReady call failed', e); }
       // --- Playable SDK quick-start (safe runtime shim to avoid build-time dependency) ---
       try {
-        const isSdkPresent = !!(window as any).sdk;
-        const playableSdk: any = (window as any).sdk || {
+        const isSdkPresent = typeof (sdk as any) !== 'undefined' || !!(window as any).sdk;
+        const playableSdk: any = (typeof (sdk as any) !== 'undefined' && (sdk as any)) || (window as any).sdk || {
           init: (_cb?: any) => {},
           on: (_ev?: any, _cb?: any) => {},
           start: () => {},
@@ -156,10 +156,29 @@ async function init() {
           playableSdk.on && playableSdk.on('resize', (w: number, h: number) => {
             try { applyCanvasCssSize(); } catch (e) {}
           });
-          playableSdk.on && playableSdk.on('pause', () => { try { /* pause handler */ } catch (e) {} });
-          playableSdk.on && playableSdk.on('resume', () => { try { /* resume handler */ } catch (e) {} });
-          playableSdk.on && playableSdk.on('volume', (_v: any) => { try { /* volume */ } catch (e) {} });
+          playableSdk.on && playableSdk.on('pause', () => { try { if (app && app.ticker) app.ticker.stop(); try { (window as any).gamePause && (window as any).gamePause(); } catch(e){} } catch (e) {} });
+          playableSdk.on && playableSdk.on('resume', () => { try { if (app && app.ticker) app.ticker.start(); try { (window as any).gameResume && (window as any).gameResume(); } catch(e){} } catch (e) {} });
+          playableSdk.on && playableSdk.on('volume', (level: number) => { try { if (typeof level === 'number') { try { SoundController && SoundController.setVolume && (SoundController as any).setVolume(level); } catch(e){} } } catch (e) {} });
           playableSdk.on && playableSdk.on('finish', () => { try { (window as any).gameEnd && (window as any).gameEnd(); } catch (e) {} });
+
+          // Recommended/optional events
+          playableSdk.on && playableSdk.on('init', () => { try { /* loading screen may be shown by host */ } catch(e){} });
+          playableSdk.on && playableSdk.on('ready', () => {
+            try {
+              // SDK signals container ready - we can start loading resources or call gameReady
+              try { (window as any).gameReady && (window as any).gameReady(); } catch(e){}
+            } catch(e){}
+          });
+          playableSdk.on && playableSdk.on('start', () => { try { if (typeof startGame === 'function') startGame(); } catch(e){} });
+          playableSdk.on && playableSdk.on('interaction', (count: number) => {
+            try {
+              console.log('SDK interaction', count);
+              // show install CTA after enough interactions
+              try { if (count >= 3) { const ib = document.getElementById('installButton'); if (ib) ib.style.display = 'inline-block'; } } catch(e){}
+            } catch(e){}
+          });
+          playableSdk.on && playableSdk.on('retry', () => { try { if (typeof restartGame === 'function') restartGame(); } catch(e){} });
+          playableSdk.on && playableSdk.on('install', () => { try { console.log('SDK install event'); } catch(e){} });
 
           // Start the playable when resources are loaded
           try { playableSdk.start && playableSdk.start(); } catch (e) {}
@@ -1835,7 +1854,7 @@ async function init() {
           (btnG as any).buttonMode = true;
           overlay.addChild(btnG);
 
-          const btnText = new Text({ text: 'Get on Google Play', style: btnStyle });
+          const btnText = new Text({ text: 'Install', style: btnStyle });
           btnText.x = btnX + Math.round((btnW2 - btnText.width) / 2);
           btnText.y = btnY + Math.round((btnH2 - btnText.height) / 2);
           overlay.addChild(btnText);
@@ -1868,7 +1887,7 @@ async function init() {
             // Gọi hàm CTA custom: nếu FbPlayableAd.onCTAClick tồn tại gọi nó,
             // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới https://leapstud.io/
             try {
-              const url = 'https://leapstud.io/';
+              const url = (window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/';
               const mraid = (window as any).mraid;
 
               // If MRAID exists, prefer it but only call open when the creative is viewable
@@ -1917,7 +1936,7 @@ async function init() {
               // Last resort: open in new tab/window
               try { window.open(url, '_blank'); } catch (e) { console.log('CTA click fallback failed', e); }
             } catch (e) {
-              try { window.open('https://leapstud.io/', '_blank'); } catch (e) {}
+              try { window.open((window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/', '_blank'); } catch (e) {}
             }
             try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
           });

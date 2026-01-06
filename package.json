@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "playable-scripts start", 
+    "dev": "playable-scripts start",
+    "prebuild": "node ./scripts/generate-build-vars.js",
     "build": "playable-scripts build"
   },
   "playable": {
