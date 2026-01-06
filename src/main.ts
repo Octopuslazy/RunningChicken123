@@ -17,7 +17,7 @@ try {
 
   if (typeof w.FbPlayableAd === 'undefined' || !w.FbPlayableAd) {
     w.FbPlayableAd = {
-      onCTAClick: function() { try { window.open((window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/', '_blank'); } catch (e) {} },
+      onCTAClick: function() { try { window.open((window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/', '_blank'); } catch (e) {} },
       gameReady: function() {},
       gameStart: function() {},
       gameEnd: function() {},
@@ -58,7 +58,8 @@ try {
       return {
         open: function(url?: string) {
           try {
-            const target = url && typeof url === 'string' ? url : ((w.MRAID_STORE_URLS && (w.MRAID_STORE_URLS.android || w.MRAID_STORE_URLS.ios)) || 'https://leapstud.io/');
+            const fallback = ((window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/');
+            const target = url && typeof url === 'string' ? url : ((w.MRAID_STORE_URLS && (w.MRAID_STORE_URLS.android || w.MRAID_STORE_URLS.ios)) || fallback);
             try { window.open(target, '_blank'); } catch (e) {}
           } catch (e) {}
         },
@@ -940,7 +941,7 @@ async function init() {
   let score = 0;
   let prevScore = 0;
   let lastDistanceThreshold = 0;
-  const REWARD_URL = 'https://play.google.com/store/apps/details?id=com.gps.my.cozy.house&pcampaignid=web_share';
+  const REWARD_URL = (window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/';
   const REWARD_THRESHOLD = 1500;
   let rewardShown = false;
   let rewardActive = false;
@@ -1885,9 +1886,9 @@ async function init() {
             } catch (e) {}
 
             // Gọi hàm CTA custom: nếu FbPlayableAd.onCTAClick tồn tại gọi nó,
-            // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới https://leapstud.io/
+            // nếu không (hoặc trong trường hợp lỗi) chuyển hướng tới GOOGLE/APP store URL nếu có
             try {
-              const url = (window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/';
+              const url = (window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/';
               const mraid = (window as any).mraid;
 
               // If MRAID exists, prefer it but only call open when the creative is viewable
@@ -1936,7 +1937,7 @@ async function init() {
               // Last resort: open in new tab/window
               try { window.open(url, '_blank'); } catch (e) { console.log('CTA click fallback failed', e); }
             } catch (e) {
-              try { window.open((window as any).GOOGLE_PLAY_URL || 'https://leapstud.io/', '_blank'); } catch (e) {}
+              try { window.open((window as any).GOOGLE_PLAY_URL || (window as any).APP_STORE_URL || '/', '_blank'); } catch (e) {}
             }
             try { rewardClaimed = true; controlsEnabled = false; } catch (e) {}
           });
