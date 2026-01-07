@@ -1,4 +1,5 @@
 import { Assets } from 'pixi.js';
+import { sound as PixiSound } from '@pixi/sound';
 
 // Import sounds so the bundler inlines or bundles them for single-file builds
 import bgSound from '../../Assets/Sounds/13. option2. Game running.mp3';
@@ -42,39 +43,51 @@ class SoundController {
     pickup: 100,
     hit: 800
   };
+  private usePixiSound = false;
 
   constructor() {}
 
   init(basePath = '/Assets/Sounds/') {
     try {
       this.basePath = basePath || this.basePath;
-
-      // Register sounds with PIXI Assets (this makes them available in the asset system
-      // and also ensures bundlers like webpack will include them when imported above).
+      // Register sounds with PIXI Assets (makes bundlers include them)
       try {
         Assets.add({ alias: 'bg', src: bgSound });
         Assets.add({ alias: 'jump', src: flySound });
         Assets.add({ alias: 'pickup', src: plusSound });
         Assets.add({ alias: 'hit', src: rockSound });
-      } catch (e) {
-        // Some environments may not expose Assets.add; that's ok — we'll still use the imported URIs.
-      }
+      } catch (e) {}
 
-      // Create audio elements from imported data (these will be data URIs or packed paths
-      // when built as a single-file playable). Using the imported variables avoids
-      // constructing file-system paths which the browser cannot access.
-      this.sounds.bg = new Audio(bgSound);
-      this.sounds.bg.loop = true;
-      this.sounds.bg.preload = 'auto';
+      // Prefer @pixi/sound when available
+      try {
+        if (PixiSound && typeof PixiSound.add === 'function') {
+          try {
+            PixiSound.add('bg', bgSound);
+            PixiSound.add('jump', flySound);
+            PixiSound.add('pickup', plusSound);
+            PixiSound.add('hit', rockSound);
+            this.usePixiSound = true;
+          } catch (e) {
+            this.usePixiSound = false;
+          }
+        }
+      } catch (e) { this.usePixiSound = false; }
 
-      this.sounds.jump = new Audio(flySound);
-      this.sounds.jump.preload = 'auto';
+      // Fallback: create HTMLAudio elements so effects still work without pixi-sound
+      try {
+        this.sounds.bg = new Audio(bgSound);
+        this.sounds.bg.loop = true;
+        this.sounds.bg.preload = 'auto';
 
-      this.sounds.pickup = new Audio(plusSound);
-      this.sounds.pickup.preload = 'auto';
+        this.sounds.jump = new Audio(flySound);
+        this.sounds.jump.preload = 'auto';
 
-      this.sounds.hit = new Audio(rockSound);
-      this.sounds.hit.preload = 'auto';
+        this.sounds.pickup = new Audio(plusSound);
+        this.sounds.pickup.preload = 'auto';
+
+        this.sounds.hit = new Audio(rockSound);
+        this.sounds.hit.preload = 'auto';
+      } catch (e) {}
     } catch (e) {
       // swallow errors - building targets may vary
     }
@@ -83,13 +96,20 @@ class SoundController {
   // Start background loop (call after user gesture if needed)
   playBackground() {
     try {
+      if (this.usePixiSound) {
+        try {
+          // ensure AudioContext resumed — caller should do this on user gesture
+          PixiSound.play('bg', { loop: true, volume: this.baseBgVolume * this.volumeLevel });
+          this.bgPlaying = true;
+          return;
+        } catch (e) {}
+      }
+
       if (!this.sounds.bg) return;
-      // Some browsers require a user gesture to play audio. We attempt to play,
-      // but failures should be handled silently.
       this.sounds.bg.volume = this.baseBgVolume * this.volumeLevel;
       const p = this.sounds.bg.play();
       if (p && typeof (p as any).catch === 'function') {
-        (p as any).catch(() => { /* ignore autoplay block */ });
+        (p as any).catch(() => {});
       }
       this.bgPlaying = true;
     } catch (e) {
@@ -101,15 +121,26 @@ class SoundController {
   // prevent unmute without user gesture, but this increases success rate.
   playBackgroundForced(unmuteAfterMs = 300) {
     try {
+      if (this.usePixiSound) {
+        try {
+          // Play with zero volume then raise volume after a short delay
+          PixiSound.play('bg', { loop: true, volume: 0 });
+          this.bgPlaying = true;
+          setTimeout(() => {
+            try { PixiSound.volume('bg', this.baseBgVolume * this.volumeLevel); } catch (e) {}
+          }, unmuteAfterMs);
+          return;
+        } catch (e) {}
+      }
+
       if (!this.sounds.bg) return;
       this.sounds.bg.muted = true;
       this.sounds.bg.volume = 0.0;
       const p = this.sounds.bg.play();
       if (p && typeof (p as any).catch === 'function') {
-        (p as any).catch(() => { /* ignore autoplay block */ });
+        (p as any).catch(() => {});
       }
       this.bgPlaying = true;
-      // attempt to unmute after a short delay
       setTimeout(() => {
         try {
           this.sounds.bg!.muted = false;
@@ -131,6 +162,11 @@ class SoundController {
 
   stopBackground() {
     try {
+      if (this.usePixiSound) {
+        try { PixiSound.stop('bg'); } catch (e) {}
+        this.bgPlaying = false;
+        return;
+      }
       if (!this.sounds.bg) return;
       this.sounds.bg.pause();
       this.sounds.bg.currentTime = 0;
@@ -141,13 +177,15 @@ class SoundController {
   // Stop/pause all managed audio elements (background + effect sources)
   stopAll() {
     try {
-      // stop background
-      try { if (this.sounds.bg) { this.sounds.bg.pause(); this.sounds.bg.currentTime = 0; } } catch (e) {}
-      // stop base effect sources (clones may still play; this stops originals)
-      try { if (this.sounds.jump) { this.sounds.jump.pause(); this.sounds.jump.currentTime = 0; } } catch (e) {}
-      try { if (this.sounds.pickup) { this.sounds.pickup.pause(); this.sounds.pickup.currentTime = 0; } } catch (e) {}
-      try { if (this.sounds.hit) { this.sounds.hit.pause(); this.sounds.hit.currentTime = 0; } } catch (e) {}
-      // stop any one-off audio previously started via stopAllAndPlay
+      // stop background and pixi-managed sounds
+      if (this.usePixiSound) {
+        try { PixiSound.stopAll && PixiSound.stopAll(); } catch (e) {}
+      } else {
+        try { if (this.sounds.bg) { this.sounds.bg.pause(); this.sounds.bg.currentTime = 0; } } catch (e) {}
+        try { if (this.sounds.jump) { this.sounds.jump.pause(); this.sounds.jump.currentTime = 0; } } catch (e) {}
+        try { if (this.sounds.pickup) { this.sounds.pickup.pause(); this.sounds.pickup.currentTime = 0; } } catch (e) {}
+        try { if (this.sounds.hit) { this.sounds.hit.pause(); this.sounds.hit.currentTime = 0; } } catch (e) {}
+      }
       try { if (this.lastOneOff) { this.lastOneOff.pause(); this.lastOneOff.currentTime = 0; this.lastOneOff = null; } } catch (e) {}
       this.bgPlaying = false;
     } catch (e) {}
@@ -169,6 +207,9 @@ class SoundController {
       // Prefer the imported/bundled sound if available, otherwise fall back to basePath
       const mapped = SOUND_FILENAME_MAP[filename];
       const srcPath = mapped || (this.basePath + filename);
+      if (this.usePixiSound) {
+        try { PixiSound.play(srcPath); return; } catch (e) {}
+      }
       const src = new Audio(srcPath);
       src.preload = 'auto';
       src.volume = 0.9;
@@ -187,10 +228,12 @@ class SoundController {
       const cd = this.cooldownMs[key] || 0;
       if (now - last < cd) return; // skip if within cooldown
       this.lastPlayed[key] = now;
+      if (this.usePixiSound) {
+        try { PixiSound.play(key === 'bg' ? 'bg' : key, { volume: key === 'pickup' ? 0.45 : (key === 'jump' ? 0.7 : 0.9) }); return; } catch (e) {}
+      }
       if (!src) return;
       // clone element so multiple plays can overlap
       const node = src.cloneNode(true) as HTMLAudioElement;
-      // reduce pickup volume so it's less loud compared to other effects
       node.volume = (key === 'pickup') ? 0.45 : (key === 'jump' ? 0.7 : 0.9);
       const p = node.play();
       if (p && typeof (p as any).catch === 'function') (p as any).catch(() => {});
@@ -206,7 +249,15 @@ class SoundController {
     try {
       ['click', 'pointerdown', 'keydown', 'touchstart'].forEach((ev) => {
         window.addEventListener(ev, () => {
-          try { if (this.sounds.bg && !this.bgPlaying) this.playBackground(); } catch (e) {}
+          try {
+            // Resume Pixi AudioContext if available
+            try {
+              if (this.usePixiSound && PixiSound && (PixiSound as any).context && (PixiSound as any).context.state === 'suspended') {
+                (PixiSound as any).context.resume && (PixiSound as any).context.resume();
+              }
+            } catch (er) {}
+            if (this.sounds.bg && !this.bgPlaying) this.playBackground();
+          } catch (e) {}
         }, { once: true });
       });
     } catch (e) {}
