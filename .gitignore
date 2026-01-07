@@ -1,6 +1,50 @@
+# Dependencies
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
 dist/
+build/
 /.vite
-npm-debug.log
+*.tgz
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Build variables (auto-generated)
 src/build-vars.js
 build-vars.js
+
+# Asset loader config (will be created by setup)
+src/assetLoader.config.ts
+
+# Temporary files
+*.tmp
+*.temp
+
+# Project specific
+/Assets/_temp/
+/Assets/backup/

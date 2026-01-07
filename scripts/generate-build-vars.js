@@ -5,8 +5,8 @@ const outPath = path.resolve(__dirname, '..', 'src', 'build-vars.js');
 
 const AD_NETWORK = process.env.AD_NETWORK || 'applovin';
 const AD_PROTOCOL = process.env.AD_PROTOCOL || 'mraid';
-const GOOGLE_PLAY_URL = process.env.GOOGLE_PLAY_URL || 'https://play.google.com/store/apps/details?id=com.ggds.ski.resort.empire.idle.tycoon.game&pcampaignid=web_share';
-const APP_STORE_URL = process.env.APP_STORE_URL || 'https://apps.apple.com/vn/app/tam-qu%E1%BB%91c-kh%E1%BB%9Fi-%C4%91%E1%BB%99ng/id6742780202?l=vi';
+const GOOGLE_PLAY_URL = process.env.GOOGLE_PLAY_URL || 'https://play.google.com/store/apps/details?id=LeapStudio';
+const APP_STORE_URL = process.env.APP_STORE_URL || 'https://apps.apple.com/app/1123';
 const BUILD_HASH = process.env.BUILD_HASH || 'local-build';
 const SUPPORTED_AD_NETWORKS = (process.env.SUPPORTED_AD_NETWORKS && process.env.SUPPORTED_AD_NETWORKS.split(',')) || ['applovin','mintegral','unity','facebook','ironsource','google','tiktok'];
 

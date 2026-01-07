@@ -2,10 +2,6 @@ import { Assets, Texture, Rectangle } from 'pixi.js';
 import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
 
 declare const require: any;
-
-// ===========================================
-// CONFIGURATION - EDIT THIS FOR YOUR PROJECT
-// ===========================================
 export interface AssetLoaderConfig {
     spine?: {
         enabled: boolean;
