@@ -624,38 +624,6 @@ async function init() {
   hudLayer.addChild(label);
   // hide runtime speed/distance debug label (gameplay updates it)
   label.visible = false;
-
-  // try {
-  //   let soundEnabled = true; // Mặc định sound ON
-  //   const soundToggle = new Container();
-  //   const btnW = 120; const btnH = 36;
-  //   const btn = new Graphics();
-  //   try { btn.clear(); btn.beginFill(0x000000, 0.45); btn.drawRoundedRect(0, 0, btnW, btnH, 6); btn.endFill(); } catch (e) {}
-  //   const lblStyle = new TextStyle({ fill: '#ffffff', fontSize: 16, fontFamily: 'Helvetica-Bold' });
-  //   const lbl = new Text({ text: 'Sound: On', style: lblStyle }); // Hiển thị Sound: On mặc định
-  //   lbl.x = 10; lbl.y = 6;
-  //   soundToggle.addChild(btn);
-  //   soundToggle.addChild(lbl);
-  //   soundToggle.x = 8; soundToggle.y = 8;
-  //   soundToggle.interactive = true;
-  //   (soundToggle as any).buttonMode = true;
-  //   soundToggle.on && soundToggle.on('pointerdown', () => {
-  //     try {
-  //       if (soundEnabled) {
-  //         try { SoundController.stopBackground(); } catch (e) {}
-  //         soundEnabled = false; lbl.text = 'Sound: Off';
-  //       } else {
-  //         try { SoundController.playBackgroundForced(300); } catch (e) { try { SoundController.playBackground(); } catch (e) {} }
-  //         soundEnabled = true; lbl.text = 'Sound: On';
-  //         try { backgroundStarted = true; } catch (e) {}
-  //       }
-  //     } catch (e) {}
-  //   });
-  //   try { hudLayer.addChild(soundToggle); } catch (e) { app.stage.addChild(soundToggle); }
-  //   // small sound toggle -> top-right, below other HUD items
-  //   hudItems.push({ obj: soundToggle, anchor: 'topright', offsetX: 20, y: 20 });
-  // } catch (e) {}
-
   const PLAYER_X = 150;
   const playerRadius = 40; // Giảm từ 20 xuống 15 để tránh va chạm sai
   const PLAYER_SPAWN_LIFT = 80;
@@ -922,13 +890,12 @@ async function init() {
   let gameplay: any = null;
   let backgroundStarted = false;
   
-  // Tự động bật nhạc nền khi khởi động game
+  // Defer background audio start until user gesture (Click to Play)
   try {
-    SoundController.playBackgroundForced(300);
-    backgroundStarted = true;
-  } catch (e) {
-    try { SoundController.playBackground(); } catch (e) {}
-  }
+    // Initialize SoundController early so audio files are available, but
+    // DO NOT attempt to auto-play here (will be started from user gesture).
+    try { SoundController.init('/Assets/Sounds/'); } catch (e) {}
+  } catch (e) {}
 
   const pickups: any[] = [];
   // expose pickups globally so pattern factories can register spawned pickups
@@ -1978,8 +1945,8 @@ async function init() {
     isRestarting = true; // Prevent scale changes during restart
     
     try { SoundController.stopAll(); } catch (e) {}
-    
-    
+    // Allow background music to be re-started after a restart
+    try { backgroundStarted = false; } catch (e) {}
     gameOver = false;
     playerDead = false;
     controlsEnabled = false; // Tạm tắt controls trong khi restart
@@ -2447,7 +2414,7 @@ async function init() {
         overlay.interactive = true;
 
         const overlayBg = new Graphics();
-        try { overlayBg.clear(); overlayBg.beginFill(0x000000, 0.6); overlayBg.drawRect(0, 0, WIDTH, HEIGHT); overlayBg.endFill(); } catch (e) {}
+        try { overlayBg.clear(); overlayBg.fill({ color: 0x000000, alpha: 0.6 }); overlayBg.rect(0, 0, WIDTH, HEIGHT); overlayBg.fill(); } catch (e) {}
         overlay.addChild(overlayBg);
 
         const style = new TextStyle({ fill: '#ffffff', fontSize: 28, fontFamily: 'Helvetica-Bold' });
@@ -2461,6 +2428,16 @@ async function init() {
         const start = () => {
           try { if (overlay.parent) overlay.parent.removeChild(overlay); } catch (e) {}
           try { window.removeEventListener('keydown', onKey); } catch (e) {}
+          try {
+            // Resume audio context on user gesture and start background music
+            try { SoundController.resumeOnUserGesture(); } catch (e) {}
+            try {
+              SoundController.playBackgroundForced(300);
+              backgroundStarted = true;
+            } catch (err) {
+              try { SoundController.playBackground(); backgroundStarted = true; } catch (e) {}
+            }
+          } catch (e) {}
           resolve();
         };
 
@@ -2490,35 +2467,7 @@ async function init() {
     updateScale();
   }
 
-  // DISABLED: Listen for external `screen-scale` events - this was causing double scaling
-  // CSS scaling handles everything, no need for root.scale manipulation
-  /*
-  try {
-    window.addEventListener('screen-scale', (ev: any) => {
-      try {
-        const s = ev && ev.detail && typeof ev.detail.scale === 'number' ? ev.detail.scale : currentScale;
-        currentScale = s;
-        // REMOVED: root.scale.set(s, s) to prevent double scaling
 
-        // Give known actors a chance to react: any child that exposes
-        // `setScreenScale(scale)`. We intentionally do NOT call this on the
-        // player so the player scales with `root.scale` and keeps the same
-        // ratio to patterns/backgrounds.
-        try {
-          const arr = root && (root as any).children ? (root as any).children.slice() : [];
-          for (const c of arr) {
-            try {
-              if (c && typeof (c as any).setScreenScale === 'function') {
-                try { (c as any).setScreenScale(s); } catch (e) {}
-              }
-            } catch (e) {}
-          }
-        } catch (e) {}
-        try { layoutHud(); } catch (e) {}
-      } catch (e) {}
-    });
-  } catch (e) {}
-  */
 
   window.addEventListener('fullscreenchange', () => {
     try { onResize(); } catch (e) {}
