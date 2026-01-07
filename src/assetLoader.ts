@@ -3,10 +3,105 @@ import * as spinePixi from '@esotericsoftware/spine-pixi-v8';
 
 declare const require: any;
 
-// Import spine assets directly - webpack will handle them
-import _chickenPng from '../Assets/Arts/anim/kfc_chicken.png';
-import _chickenAtlas from '../Assets/Arts/anim/kfc_chicken.atlas'; 
-import _chickenJson from '../Assets/Arts/anim/kfc_chicken.json';
+// ===========================================
+// CONFIGURATION - EDIT THIS FOR YOUR PROJECT
+// ===========================================
+export interface AssetLoaderConfig {
+    spine?: {
+        enabled: boolean;
+        baseName: string; // e.g., 'kfc_chicken', 'hero', 'monster'
+        basePath: string; // e.g., '../Assets/Arts/anim'
+        textureAlias?: string;
+    };
+    folders: {
+        arts: string; // e.g., '../Assets/_arts'
+        sounds: string; // e.g., '../Assets/Sounds'
+    };
+    fileExtensions: {
+        images: string[]; // e.g., ['.png', '.jpg', '.jpeg', '.svg']
+        sounds: string[]; // e.g., ['.mp3', '.wav', '.ogg']
+    };
+}
+
+// DEFAULT CONFIG - Customize this for your project
+const DEFAULT_CONFIG: AssetLoaderConfig = {
+    spine: {
+        enabled: true,
+        baseName: 'kfc_chicken',
+        basePath: '../Assets/Arts/anim',
+        textureAlias: 'fixed_chicken_tex'
+    },
+    folders: {
+        arts: '../Assets/_arts',
+        sounds: '../Assets/Sounds'
+    },
+    fileExtensions: {
+        images: ['.png', '.jpg', '.jpeg', '.svg'],
+        sounds: ['.mp3', '.wav', '.ogg', '.MP3']
+    }
+};
+
+let currentConfig: AssetLoaderConfig = DEFAULT_CONFIG;
+
+// Function to set custom configuration
+export function configureAssetLoader(config: Partial<AssetLoaderConfig>) {
+    currentConfig = { ...DEFAULT_CONFIG, ...config };
+    if (config.spine) {
+        currentConfig.spine = { ...DEFAULT_CONFIG.spine!, ...config.spine };
+    }
+    if (config.folders) {
+        currentConfig.folders = { ...DEFAULT_CONFIG.folders, ...config.folders };
+    }
+    if (config.fileExtensions) {
+        currentConfig.fileExtensions = { ...DEFAULT_CONFIG.fileExtensions, ...config.fileExtensions };
+    }
+}
+
+// Dynamic imports based on configuration
+let _spineAssets: any = null;
+
+async function loadSpineAssetsDynamically() {
+    if (!currentConfig.spine?.enabled || _spineAssets) return _spineAssets;
+    
+    try {
+        const { baseName, basePath } = currentConfig.spine;
+        const pngPath = `${basePath}/${baseName}.png`;
+        const atlasPath = `${basePath}/${baseName}.atlas`;
+        const jsonPath = `${basePath}/${baseName}.json`;
+
+        // Dynamic imports
+        const [pngModule, atlasModule, jsonModule] = await Promise.all([
+            import(/* webpackMode: "eager" */ `${pngPath}`),
+            import(/* webpackMode: "eager" */ `${atlasPath}`),
+            import(/* webpackMode: "eager" */ `${jsonPath}`)
+        ]);
+
+        _spineAssets = {
+            png: pngModule.default || pngModule,
+            atlas: atlasModule.default || atlasModule,
+            json: jsonModule.default || jsonModule
+        };
+    } catch (error) {
+        console.warn('Failed to load spine assets dynamically:', error);
+        // Fallback to default if available
+        try {
+            const _chickenPng = await import('../Assets/Arts/anim/kfc_chicken.png');
+            const _chickenAtlas = await import('../Assets/Arts/anim/kfc_chicken.atlas'); 
+            const _chickenJson = await import('../Assets/Arts/anim/kfc_chicken.json');
+            
+            _spineAssets = {
+                png: _chickenPng.default || _chickenPng,
+                atlas: _chickenAtlas.default || _chickenAtlas,
+                json: _chickenJson.default || _chickenJson
+            };
+        } catch (fallbackError) {
+            console.error('Failed to load fallback spine assets:', fallbackError);
+            _spineAssets = { png: null, atlas: '', json: null };
+        }
+    }
+    
+    return _spineAssets;
+}
 
 // Helper function to decode webpack assets
 function decodeWebpackAsset(asset: any): string {
@@ -29,14 +124,19 @@ function decodeWebpackAsset(asset: any): string {
     return '';
 }
 
-// Export spine assets with decoding
-export const RAW_SPINE_ASSETS = {
-    png: _chickenPng,
-    atlas: decodeWebpackAsset(_chickenAtlas),
-    json: _chickenJson // JSON should be imported as object by webpack
-};
+// Get spine assets with current configuration
+export async function getRawSpineAssets() {
+    const assets = await loadSpineAssetsDynamically();
+    return {
+        png: assets?.png,
+        atlas: decodeWebpackAsset(assets?.atlas),
+        json: assets?.json
+    };
+}
 
-export const FIXED_CHICKEN_ALIAS = 'fixed_chicken_tex';
+export function getSpineTextureAlias(): string {
+    return currentConfig.spine?.textureAlias || 'default_spine_tex';
+}
 
 // --- Spine Texture Management ---
 let spineTextureReady: Texture | null = null;
@@ -47,18 +147,26 @@ export function getSpineTexture(): Texture | null {
 }
 
 export async function prepareSpineTexture(): Promise<Texture | null> {
+    if (!currentConfig.spine?.enabled) return null;
+    
     try {
         // Load spine texture using webpack imports
         if (!spineTextureReady) {
-            Assets.add({ alias: FIXED_CHICKEN_ALIAS, src: RAW_SPINE_ASSETS.png });
-            const tex = await Assets.load(FIXED_CHICKEN_ALIAS);
+            const spineAssets = await getRawSpineAssets();
+            const alias = getSpineTextureAlias();
             
-            if (tex && tex.width > 0 && tex.height > 0) {
-                spineTextureReady = tex;
+            if (spineAssets.png) {
+                Assets.add({ alias, src: spineAssets.png });
+                const tex = await Assets.load(alias);
+                
+                if (tex && tex.width > 0 && tex.height > 0) {
+                    spineTextureReady = tex;
+                }
             }
         }
         return spineTextureReady;
     } catch (e) {
+        console.error('Failed to prepare spine texture:', e);
         return null;
     }
 }
@@ -73,29 +181,31 @@ export async function loadSpineAssets(): Promise<{
         return spineAssetsCache;
     }
     
-    // CSP-safe approach: do NOT create data: or blob: URLs at runtime.
-    // Only ensure the spine PNG texture is prepared and return raw atlas/json
-    // so the caller can assemble the atlas/skeleton in-memory or register
-    // them into `Assets.cache` using `registerSpineForSpineFrom()`.
+    if (!currentConfig.spine?.enabled) {
+        spineAssetsCache = { texture: null, jsonData: null, atlasText: '' };
+        return spineAssetsCache;
+    }
+    
     try {
         const texture = await prepareSpineTexture();
-        const atlasText = RAW_SPINE_ASSETS.atlas;
-        const jsonData = RAW_SPINE_ASSETS.json;
-
+        const spineAssets = await getRawSpineAssets();
+        
         spineAssetsCache = {
             texture,
-            jsonData,
-            atlasText
+            jsonData: spineAssets.json,
+            atlasText: spineAssets.atlas
         };
 
         return spineAssetsCache;
     } catch (error) {
-        console.error('Failed to prepare spine texture:', error);
+        console.error('Failed to load spine assets:', error);
         const texture = await prepareSpineTexture();
+        const spineAssets = await getRawSpineAssets();
+        
         spineAssetsCache = {
             texture,
-            jsonData: RAW_SPINE_ASSETS.json,
-            atlasText: RAW_SPINE_ASSETS.atlas
+            jsonData: spineAssets.json,
+            atlasText: spineAssets.atlas
         };
         return spineAssetsCache;
     }
@@ -121,7 +231,8 @@ export async function registerSpineForSpineFrom(atlasAlias = 'spineAtlas', skele
         }
 
         // Create texture atlas from raw atlas text
-        const atlasText = RAW_SPINE_ASSETS.atlas || '';
+        const spineAssets = await getRawSpineAssets();
+        const atlasText = spineAssets.atlas || '';
         const atlas = new TextureAtlasCtor(atlasText);
 
         // Map each page to the loaded texture's underlying source
@@ -137,7 +248,7 @@ export async function registerSpineForSpineFrom(atlasAlias = 'spineAtlas', skele
 
         // Put atlas and skeleton directly into PIXI Assets cache
         (Assets.cache as any).set(atlasAlias, atlas);
-        (Assets.cache as any).set(skeletonAlias, RAW_SPINE_ASSETS.json);
+        (Assets.cache as any).set(skeletonAlias, spineAssets.json);
 
         return true;
     } catch (err) {
@@ -158,8 +269,32 @@ function importAll(r: any) {
     return images;
 }
 
-const arts = (function(){ try { return importAll((require as any).context('../Assets/_arts', false, /\.(png|jpe?g|svg)$/)); } catch (e) { return {}; } })();
-const sounds = (function(){ try { return importAll((require as any).context('../Assets/Sounds', false, /\.(mp3|wav|ogg|MP3)$/)); } catch (e) { return {}; } })();
+// Dynamic asset loading based on configuration
+function loadAssetsFromFolder(folderPath: string, extensions: string[]) {
+    try {
+        const extensionPattern = extensions.map(ext => ext.replace('.', '\\.')).join('|');
+        const regex = new RegExp(`\\.(${extensionPattern})$`);
+        return importAll((require as any).context(folderPath, false, regex));
+    } catch (e) {
+        console.warn(`Failed to load assets from ${folderPath}:`, e);
+        return {};
+    }
+}
+
+// Get arts and sounds with current configuration
+function getArts() {
+    return loadAssetsFromFolder(
+        currentConfig.folders.arts, 
+        currentConfig.fileExtensions.images
+    );
+}
+
+function getSounds() {
+    return loadAssetsFromFolder(
+        currentConfig.folders.sounds, 
+        currentConfig.fileExtensions.sounds
+    );
+}
 
 function registerSmartAliases(sourceMap: any, baseFolder: string, loadList: string[]) {
     const cleanFolder = baseFolder.replace('../', ''); 
@@ -176,15 +311,19 @@ function registerSmartAliases(sourceMap: any, baseFolder: string, loadList: stri
 }
 
 export async function loadGameAssets() {
-
     const assetsToLoad: string[] = [];
 
     // --- 1. SETUP SPINE TEXTURE ---
-    await prepareSpineTexture();
+    if (currentConfig.spine?.enabled) {
+        await prepareSpineTexture();
+    }
 
     // --- 2. LOAD ARTS & SOUNDS ---
-    registerSmartAliases(arts, '../Assets/_arts', assetsToLoad);
-    registerSmartAliases(sounds, '../Assets/Sounds', assetsToLoad);
+    const arts = getArts();
+    const sounds = getSounds();
+    
+    registerSmartAliases(arts, currentConfig.folders.arts, assetsToLoad);
+    registerSmartAliases(sounds, currentConfig.folders.sounds, assetsToLoad);
 
     if (assetsToLoad.length > 0) {
         await Assets.load(assetsToLoad); 
@@ -206,5 +345,28 @@ export async function loadSpriteStrip(path: string, frames: number): Promise<Tex
 export function splitSpriteStrip(tex: Texture, frames: number): Texture[] | null { return null; }
 export async function loadIndexedFrames(basePathNoExt: string, count: number): Promise<Texture[] | null> { return null; }
 
-export { arts, sounds };
-export default { loadTexture, loadTextures, loadGameAssets, RAW_SPINE_ASSETS };
+// Export dynamic getters for backward compatibility
+export const getArtsAssets = () => getArts();
+export const getSoundsAssets = () => getSounds();
+
+// For backward compatibility - these will use current config
+export const arts = new Proxy({} as Record<string, any>, {
+    get(_, prop) { return getArts()[prop as string]; },
+    ownKeys() { return Object.keys(getArts()); },
+    has(_, prop) { return prop in getArts(); }
+});
+
+export const sounds = new Proxy({} as Record<string, any>, {
+    get(_, prop) { return getSounds()[prop as string]; },
+    ownKeys() { return Object.keys(getSounds()); },
+    has(_, prop) { return prop in getSounds(); }
+});
+
+export default { 
+    loadTexture, 
+    loadTextures, 
+    loadGameAssets, 
+    configureAssetLoader,
+    getRawSpineAssets,
+    getSpineTextureAlias
+};
