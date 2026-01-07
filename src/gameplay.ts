@@ -47,7 +47,7 @@ export class MapHandler {
     this.label = options.label;
     this.WIDTH = options.WIDTH;
     this.HEIGHT = options.HEIGHT;
-    this.groundY = options.groundY ?? (this.HEIGHT - 120);
+    this.groundY = options.groundY ?? (this.HEIGHT + 100);
     this.patternYOffset = options.patternYOffset ?? 0;
     this.baseInitialSpeed = options.initialSpeed ?? this.baseInitialSpeed;
     this.speed = this.baseInitialSpeed;
@@ -68,7 +68,6 @@ export class MapHandler {
   
   // Pattern pooling system
   private patternPool: Container[] = [];
-  private maxActivePatterns = 15; // Keep only 15 patterns active at once
   private lastPatternEndX = 0; // Track where the last pattern ends
   private patternFactories: any[] = []; // Store factories for dynamic generation
 
@@ -205,7 +204,7 @@ export class MapHandler {
         return this.groundY;
       }
     }
-    return this.groundY;
+    return this.groundY + 100;
   }
 
   // update advances the scroll, updates background color, and performs
@@ -213,34 +212,10 @@ export class MapHandler {
   update(deltaSec: number, speedAccel = 8) {
     this.speed += speedAccel * deltaSec;
     this.scroll += this.speed * deltaSec;
-    // DISABLED: Let main camera loop handle world.x positioning
-    // this.world.x = -this.scroll;
-
-    // subtle background hue change to keep previous visual behaviour
-    const hue = (this.scroll * 0.02) % 360;
-    // const col = MapHandler.hslToHex(hue, 70, 55);
-    // removed full-screen colored rectangle so host/app background is preserved
-    // keep the bg Graphics cleared so no large overlay (the red block) is drawn
     this.bg.clear();
-
     this.label.text = `Speed: ${Math.round(this.speed)} px/s  Distance: ${Math.floor(this.scroll)} px`;
 
-    // DISABLED: Legacy pit spawning - use pattern-based pits only
-    // spawn simple pits and obstacles for now. These will be migrated to
-    // proper Pattern factories in the next step.
-    /*
-    const PIT_INTERVAL = 1600;
-    const PIT_WIDTH = 160;
-    const PIT_SPAWN_AHEAD = this.WIDTH * 0.8;
-    if (this.scroll >= (this.pits.length ? this.pits[this.pits.length - 1].x - PIT_INTERVAL : PIT_INTERVAL)) {
-      const px = this.scroll + PIT_SPAWN_AHEAD;
-      this.pits.push({ x: px, width: PIT_WIDTH });
-    }
-    */
-
     // obstacles (legacy)
-    const OB_MIN_INTERVAL = 600;
-    const OB_MAX_INTERVAL = 1400;
     const OB_SPAWN_AHEAD = this.WIDTH * 0.9;
     if (this.allowRandomObstacles && Math.random() < 0.01) {
       const px = this.scroll + OB_SPAWN_AHEAD + Math.random() * 120;
@@ -301,7 +276,7 @@ export class MapHandler {
 
   // Pattern pooling: cleanup patterns behind camera
   private cleanupOldPatterns() {
-    const cleanupDistance = this.scroll - 3000; // Keep patterns 3000px behind camera
+    const cleanupDistance = this.scroll - 1000; // Keep patterns 3000px behind camera
     
     while (this.patterns.length && (this.patterns[0].start + this.patterns[0].length) < cleanupDistance) {
       const oldPattern = this.patterns.shift();
@@ -336,7 +311,7 @@ export class MapHandler {
     const distanceToEnd = this.lastPatternEndX - playerPosition;
     
     // Generate patterns when player is within 5000px of the end OR when no patterns exist (initial)
-    if ((distanceToEnd < 5000 || this.patterns.length === 0) && this.patternFactories.length > 0) {
+    if ((distanceToEnd < 2000 || this.patterns.length === 0) && this.patternFactories.length > 0) {
       // Generate 5 new patterns (or 5 initial patterns if none exist)
       for (let i = 0; i < 5; i++) {
         try {

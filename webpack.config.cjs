@@ -27,6 +27,18 @@ module.exports = {
         }
     },
 
+    plugins: [
+        new webpack.ProvidePlugin({
+            // Provide global replacements - this is the key addition
+        }),
+        new webpack.DefinePlugin({
+            // Replace fetch globally in build
+            'globalThis.fetch': 'fetchPolyfill',
+            'window.fetch': 'fetchPolyfill',
+            'self.fetch': 'fetchPolyfill'
+        })
+    ],
+
     module: {
         rules: [
             {

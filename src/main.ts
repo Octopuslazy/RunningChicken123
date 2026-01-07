@@ -1,7 +1,5 @@
 // @ts-ignore
 import './build-vars.js';
-// Import fetch polyfill BEFORE any libraries
-import './fetchPolyfill';
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
 
 try {

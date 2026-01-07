@@ -412,21 +412,6 @@ export function createCharacter({ PLAYER_X, playerRadius, groundY, texture, fram
       this.y += this.vy * deltaSec;
       const surfaceY = (this as any).getGroundY ? (this as any).getGroundY(this.worldX) : groundY;
       const groundTop = surfaceY - playerRadius;
-      // DISABLED: Ground snapping logic to prevent freeze when falling into pits
-      // Only snap to surface if the player crossed the surface from above
-      // (i.e., was above it and now is at/below it). If the player is already
-      // below the surface (fell into a pit), do not teleport them back up.
-      // if (prevY < groundTop && this.y >= groundTop && this.vy >= 0) {
-      //   this.y = groundTop;
-      //   this.vy = 0;
-      //   this.onGround = true;
-      //   // reset available jumps when landing
-      //   if ((this as any).maxJumps !== undefined) (this as any).jumpsLeft = (this as any).maxJumps;
-      // } else {
-      //   this.onGround = false;
-      // }
-      
-      // Simple onGround detection without teleporting
       this.onGround = (this.y >= groundTop && this.vy >= 0);
 
       // If player is falling, cancel any active double-jump emitter so it doesn't trail

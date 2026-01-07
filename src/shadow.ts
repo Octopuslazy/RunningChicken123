@@ -27,9 +27,9 @@ export class PlayerShadow {
     try {
       this.shadow = new Graphics();
       this.shadow.clear();
-      try { this.shadow.beginFill(0x000000, 0.6); } catch (e) {}
-      try { this.shadow.drawEllipse(0, 0, this.playerRadius * 1.2, this.playerRadius * 0.8); } catch (e) {}
-      try { this.shadow.endFill && this.shadow.endFill(); } catch (e) {}
+      try { this.shadow.fill({ color: 0x000000, alpha: 0.6 }); } catch (e) {}
+      try { this.shadow.ellipse(0, 0, this.playerRadius * 1.2, this.playerRadius * 0.8); } catch (e) {}
+      try { this.shadow.fill(); } catch (e) {}
       this.shadow.alpha = 0.6;
       try { this.world.addChild(this.shadow); } catch (e) {}
       try {
