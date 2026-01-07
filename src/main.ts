@@ -1,3 +1,4 @@
+/// <reference path="./types/dom.d.ts" />
 // @ts-ignore
 import './build-vars.js';
 import { Application, Sprite, Assets, Graphics, Text, TextStyle, Container, Texture } from 'pixi.js';
@@ -410,7 +411,7 @@ async function init() {
     canvas.style.top = `${Math.round((winH - cssH) / 2)}px`;
     
     // Handle safe area insets for mobile devices
-    if (isMobile && 'CSS' in window && CSS.supports('padding: env(safe-area-inset-top)')) {
+    if (isMobile && 'CSS' in window && window.CSS.supports('padding', 'env(safe-area-inset-top)')) {
       try {
         const safeTop = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-top)');
         const safeBottom = getComputedStyle(document.documentElement).getPropertyValue('env(safe-area-inset-bottom)');
@@ -970,7 +971,8 @@ async function init() {
   // This prevents UI spam from causing an immediate jump after respawn/restart.
   let consumeNextPointerDown = false;
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
+    const ke = e as KeyboardEvent;
+    if (ke.code === 'Space' || ke.code === 'ArrowUp') {
       e.preventDefault();
       if (!spaceHeld) {
         spaceHeld = true;
@@ -988,7 +990,8 @@ async function init() {
   });
 
   window.addEventListener('keyup', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
+    const ke = e as KeyboardEvent;
+    if (ke.code === 'Space' || ke.code === 'ArrowUp') {
       spaceHeld = false;
       try { if ((player as any).endJumpHold) (player as any).endJumpHold(); } catch (err) {}
     }
@@ -1198,7 +1201,8 @@ async function init() {
   // Player marker removed - no more red circle debug marker
   let debugEnabled = false;
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyD') {
+    const ke = e as KeyboardEvent;
+    if (ke.code === 'KeyD') {
       debugEnabled = !debugEnabled;
       debug.visible = debugEnabled;
     }
@@ -1209,7 +1213,8 @@ async function init() {
   pickupDebugContainer.zIndex = 20000;
   try { app.stage.addChild(pickupDebugContainer); } catch (e) { try { root.addChild(pickupDebugContainer); } catch (e) {} }
   window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyP') {
+    const ke = e as KeyboardEvent;
+    if (ke.code === 'KeyP') {
       pickupDebug = !pickupDebug;
       pickupDebugContainer.visible = pickupDebug;
 
